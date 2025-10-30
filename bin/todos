@@ -1,0 +1,55 @@
+#!/bin/sh
+SELF=$(realpath "$0")
+BASEDIR=$(dirname "$SELF")
+
+if [ -d "$BASEDIR/../lib" ]; then
+  LIBDIR="$BASEDIR/../lib"
+else
+  LIBDIR="$HOME/.local/lib/todos"
+fi
+
+# Import libraries
+. "$LIBDIR/db.sh"
+# . "$LIBDIR/users.sh"
+# . "$LIBDIR/tasks.sh"
+# . "$LIBDIR/topics.sh"
+
+# Validate and execute
+# Abstract into separate processes?
+case "$1" in
+  init)
+    echo "Initializing database"
+    init_db
+    echo "Database initialization complete"
+
+    echo "Creating user reference"
+    add_user $(whoami)
+    echo "Added current user to database"
+    ;;
+  flush|delete)
+    printf "This will delete all data, are you sure? [y/N]: " 
+    read to_delete
+    to_delete=$(printf '%s' "$to_delete" | tr '[:upper:]' '[:lower:]]')
+    echo $to_delete
+
+    if [ $to_delete = 'y' -o $to_delete = 'yes' ]; then
+      echo "Proceeding... TODO"
+      if [ $1 = 'flush' ]; then to_reset='true'; else to_reset='false'; fi
+      echo "RUN: flush_db $to_reset"
+      flush_db $to_reset
+      echo "Deleted database"
+    else
+      echo "Aborted."
+    fi
+    ;;
+  import)
+    printf "TODO: import from todo.txt"
+    ;;
+  export)
+    printf "TODO: export to todo.txt"
+    ;;
+  *)
+    # TODO: move init,flush,delete, maybe list to a `db` subcommand?
+    echo "Usage: $0 {init|flush|delete|list|tag|done}" >&2
+    ;;
+esac

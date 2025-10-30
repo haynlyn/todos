@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS test_todos (
+  id INTEGER PRIMARY KEY,
+  file_id INTEGER,
+  line_start INTEGER,
+  line_end INTEGER,
+  todo TEXT,
+  tags TEXT,
+  status TEXT,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS test_files (
+  id INTEGER PRIMARY KEY,
+  path TEXT UNIQUE,
+  tags TEXT,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS test_tags (
+  id INTEGER PRIMARY KEY,
+  tag TEXT UNIQUE,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
