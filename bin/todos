@@ -9,47 +9,350 @@ else
 fi
 
 # Import libraries
+. "$LIBDIR/common.sh"
 . "$LIBDIR/db.sh"
-# . "$LIBDIR/users.sh"
-# . "$LIBDIR/tasks.sh"
-# . "$LIBDIR/topics.sh"
+. "$LIBDIR/users.sh"
+. "$LIBDIR/tasks.sh"
+. "$LIBDIR/topics.sh"
+. "$LIBDIR/build.sh"
+. "$LIBDIR/import_export.sh"
+. "$LIBDIR/config.sh"
+. "$LIBDIR/stats.sh"
 
-# Validate and execute
-# Abstract into separate processes?
+# Main command dispatcher
 case "$1" in
+  # Database commands
   init)
     echo "Initializing database"
-    init_db
+    shift
+    init_db "$@"
     echo "Database initialization complete"
-
     echo "Creating user reference"
     add_user $(whoami)
     echo "Added current user to database"
     ;;
-  flush|delete)
-    printf "This will delete all data, are you sure? [y/N]: " 
-    read to_delete
-    to_delete=$(printf '%s' "$to_delete" | tr '[:upper:]' '[:lower:]]')
-    echo $to_delete
 
-    if [ $to_delete = 'y' -o $to_delete = 'yes' ]; then
-      echo "Proceeding... TODO"
-      if [ $1 = 'flush' ]; then to_reset='true'; else to_reset='false'; fi
-      echo "RUN: flush_db $to_reset"
-      flush_db $to_reset
-      echo "Deleted database"
+  flush|reset)
+    printf "This will delete all data, are you sure? [y/N]: "
+    read to_delete
+    to_delete=$(printf '%s' "$to_delete" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$to_delete" = 'y' -o "$to_delete" = 'yes' ]; then
+      flush_db 'true'
+      echo "Database flushed and reinitialized"
     else
       echo "Aborted."
     fi
     ;;
+
+  delete)
+    printf "This will permanently delete all data, are you sure? [y/N]: "
+    read to_delete
+    to_delete=$(printf '%s' "$to_delete" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$to_delete" = 'y' -o "$to_delete" = 'yes' ]; then
+      flush_db 'false'
+      echo "Database deleted"
+    else
+      echo "Aborted."
+    fi
+    ;;
+
+  build)
+    shift
+    build_from_files "$@"
+    ;;
+
   import)
-    printf "TODO: import from todo.txt"
+    shift
+    import_from_todotxt "$@"
     ;;
+
   export)
-    printf "TODO: export to todo.txt"
+    shift
+    export_to_todotxt "$@"
     ;;
+
+  # User management commands
+  # Admin commands (privileged operations)
+  admin)
+    shift
+    case "$1" in
+      user)
+        shift
+        case "$1" in
+          add)
+            shift
+            admin_add_user "$@"
+            ;;
+          del|delete|remove)
+            shift
+            admin_del_user "$@"
+            ;;
+          list)
+            admin_list_users
+            ;;
+          role)
+            shift
+            admin_change_role "$@"
+            ;;
+          *)
+            echo "Usage: $0 admin user {add|del|list|role} [args]" >&2
+            exit 1
+            ;;
+        esac
+        ;;
+      *)
+        echo "Usage: $0 admin {user} [subcommand]" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
+  # Task commands
+  create|add)
+    shift
+    create_task "$@"
+    ;;
+
+  delete|del|remove|rm)
+    shift
+    delete_task "$@"
+    ;;
+
+  list|ls|show)
+    shift
+    list_tasks "$@"
+    ;;
+
+  update)
+    shift
+    update_task "$@"
+    ;;
+
+  tag)
+    shift
+    tag_task "$@"
+    ;;
+
+  priority|pri)
+    shift
+    set_priority "$@"
+    ;;
+
+  deadline|due)
+    shift
+    set_deadline "$@"
+    ;;
+
+  rename|mv)
+    shift
+    rename_task "$@"
+    ;;
+
+  status)
+    shift
+    set_status "$@"
+    ;;
+
+  done|complete)
+    shift
+    # Set status to DONE for specified task
+    task_id="$1"
+    if [ -n "$task_id" ]; then
+      set_status "$task_id" "DONE"
+    else
+      echo "Error: must specify task id"
+    fi
+    ;;
+
+  # Topic commands
+  subscribe|sub)
+    shift
+    subscribe_topic "$@"
+    ;;
+
+  unsubscribe|unsub)
+    shift
+    unsubscribe_topic "$@"
+    ;;
+
+  topics)
+    shift
+    list_topics "$@"
+    ;;
+
+  # Config commands
+  config)
+    shift
+    subcommand="$1"
+    shift
+    case "$subcommand" in
+      set)
+        set_config "$@"
+        ;;
+      unset)
+        unset_config "$@"
+        ;;
+      get)
+        get_config "$@"
+        ;;
+      list)
+        list_config
+        ;;
+      *)
+        echo "Usage: $0 config {set|unset|get|list} [key] [value]" >&2
+        ;;
+    esac
+    ;;
+
+  # Statistics command
+  stats|statistics)
+    shift
+    show_stats "$@"
+    ;;
+
+  # Uninstall command
+  uninstall)
+    # Source the uninstall implementation
+    if [ -f "$LIBDIR/uninstall_impl.sh" ]; then
+      . "$LIBDIR/uninstall_impl.sh"
+    else
+      echo "Error: Cannot find uninstall implementation" >&2
+      exit 1
+    fi
+
+    # Parse flags
+    shift
+    dry_run=false
+    while [ "$#" -gt 0 ]; do
+      case "$1" in
+        --dry-run)
+          dry_run=true
+          shift
+          ;;
+        *)
+          echo "Unknown option: $1" >&2
+          echo "Usage: todos uninstall [--dry-run]" >&2
+          exit 1
+          ;;
+      esac
+    done
+
+    # Perform uninstall
+    perform_uninstall "$dry_run"
+    ;;
+
+  # Help command
+  help|-h|--help)
+    cat <<EOF
+Usage: $0 <command> [options]
+
+DATABASE COMMANDS:
+  init [path]              Initialize database at optional path
+  flush|reset              Delete and reinitialize database
+  delete                   Permanently delete database
+  build [options]          Scan for TODO comments and .todo files
+    --from <type>          Scan type: auto, todo-files, comments, blocks (default: auto)
+    -d, --directory <dir>  Directory to scan (default: .)
+    --assign-to-me         Assign all discovered tasks to you
+    --unassigned           Create tasks without owner assignment (default)
+
+    Examples:
+      todos build --from comments
+      todos build --from all --assign-to-me
+      todos build --from todo-files -d ./src
+  import <file>            Import tasks from todo.txt file
+  export <file>            Export tasks to todo.txt file
+    -a, --all              Export all tasks
+    -d, --done             Export only completed tasks
+    -i, --incomplete       Export only incomplete tasks
+
+TASK COMMANDS:
+  create|add <content> [options]  Create a new task
+    <content>              Task description (required, positional)
+    -t, --title <title>    Optional short title/summary
+    -p, --priority <num>   Priority (1=A, 2=B, etc.)
+    -d, --due-date <date>  Due date (YYYY-MM-DD)
+    -s, --status <status>  Status (TODO, IN_PROGRESS, DONE)
+    -f, --file <path>      Associated file
+  delete|del <id|title>    Delete a task
+  list|ls [options]        List tasks
+    -t, --topic <topic>    Filter by topic
+    -u, --user <user>      Filter by user
+    -i, --incomplete       Show incomplete tasks only
+    -d, --done             Show completed tasks only
+    -l, --late             Show late tasks only
+    -f, --file <path>      Filter by file
+    --sort-by <field>      Sort by field
+  update <id> [options]    Update a task
+    -c, --content <text>   Update content
+    -s, --status <status>  Update status
+    -d, --due-date <date>  Update due date
+    -p, --priority <num>   Update priority
+    -t, --title <title>    Update title
+  tag <id> <topic>         Tag task with topic
+  priority|pri <id> <num>  Set task priority
+  deadline|due <id> <date> Set task deadline
+  rename|mv <id> <title>   Rename task
+  status <id> <status>     Set task status
+  done|complete <id>       Mark task as done
+
+TOPIC COMMANDS:
+  subscribe|sub <topic>    Subscribe to topic
+  unsubscribe|unsub <topic> Unsubscribe from topic
+  topics [options]         List topics
+    -u, --user <user>      Show topics for user
+    -a, --all              Show all topics with stats
+
+CONFIG COMMANDS:
+  config set <key> <value> Set configuration value
+  config unset <key>       Unset configuration value
+  config get <key>         Get configuration value
+  config list              List all configuration
+
+STATISTICS COMMANDS:
+  stats|statistics [options] Show task statistics
+    --status               Show status counts only
+    --priority             Show priority counts only
+    --dates                Show date counts only
+    --topics               Show topic counts only
+    --users                Show user task counts only
+    --subscriptions        Show user subscription counts only
+    --tasks-per-topic      Show tasks per topic only
+    (no options)           Show all statistics
+
+ADMIN COMMANDS (require admin privileges):
+  admin user add <username> [role]   Add user to database
+  admin user del <username>          Remove user from database
+  admin user list                    List all users
+  admin user role <username> <role>  Change user role (admin|user)
+
+SYSTEM COMMANDS:
+  uninstall [--dry-run]    Uninstall todos from system
+    --dry-run              Show what would be removed without removing
+
+NOTE: Users are auto-created on first command. Use 'admin user' commands
+      only for manual user management or changing roles.
+
+EXAMPLES:
+  $0 init
+  $0 create "Call Mom"
+  $0 create "Fix authentication bug" -t "Auth Bug" -p 1 -d 2024-12-31
+  $0 list -i --sort-by priority
+  $0 tag 1 urgent
+  $0 done 1
+  $0 build --from all
+  $0 export todo.txt -a
+  $0 stats
+  $0 stats --status --priority
+
+EOF
+    ;;
+
   *)
-    # TODO: move init,flush,delete, maybe list to a `db` subcommand?
-    echo "Usage: $0 {init|flush|delete|list|tag|done}" >&2
+    echo "Unknown command: $1" >&2
+    echo "Try '$0 help' for usage information" >&2
+    exit 1
     ;;
 esac

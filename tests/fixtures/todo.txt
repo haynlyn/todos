@@ -1,0 +1,11 @@
+(A) 2024-01-15 Call Mom +family @phone
+2024-01-14 Review code changes +work @computer
+(B) 2024-01-16 Buy groceries +personal @errands due:2024-01-20
+x 2024-01-18 2024-01-10 Fix authentication bug +work @computer
+(C) Write blog post about testing +blog @writing
+Schedule dentist appointment +health @phone due:2024-02-01
+x 2024-01-17 2024-01-15 Deploy v2.0 to production +work @computer
+Research new framework options +work @computer note:"Compare React, Vue, and Svelte"
+(A) Submit expense report +work @admin due:2024-01-25
+Plan vacation itinerary +personal @planning note:"Check flight prices for June"
+x (A) 2016-05-20 2016-04-30 measure space for +chapelShelving @chapel due:2016-05-30

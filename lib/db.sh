@@ -1,109 +1,86 @@
 #!/bin/sh
 # database management library
-## should it also include database querying, or shoud that be separate?
+
+# Note: LIBDIR is set by the main todos script
+. "$LIBDIR/common.sh"
 
 init_db() {
-  # TODO: update to specify whether it's a global or local db (say, for project-specific TODOs statements)
-  SELF=$(realpath "$0")
-  BASEDIR=$(dirname "$SELF")
-
+  # Initialize database in current directory or specified path
   DB_PATH="$1"
 
   if [ -z "$DB_PATH" ]; then
-    DB_PATH=$(realpath $BASEDIR/../todos.db)
+    DB_PATH="$PWD/.todos.db"
   fi
 
-  echo "Database location: $DB_PATH"
+  # Check if database already exists
+  if [ -f "$DB_PATH" ]; then
+    echo "Database already exists at: $DB_PATH"
+    echo "Use 'todos flush' to reinitialize or 'todos delete' to remove it."
+    return 1
+  fi
+
+  echo "Initializing database at: $DB_PATH"
 
   DB=$(realpath "$DB_PATH")
   mkdir -p "$(dirname "$DB")"
 
-  if [ ! -f "$DB" ]; then
-    sqlite3 "$DB" < $(dirname "$DB_PATH")/share/schema.sql
-    echo "Created new database at $DB"
+  # Find schema.sql - check installed location first, then dev location
+  SCHEMA_PATH=""
+  if [ -f "$HOME/.local/share/todos/schema.sql" ]; then
+    SCHEMA_PATH="$HOME/.local/share/todos/schema.sql"
+  elif [ -f "$LIBDIR/../share/schema.sql" ]; then
+    SCHEMA_PATH="$LIBDIR/../share/schema.sql"
   else
-    echo "Using existing database at $DB"
+    echo "Error: Cannot find schema.sql" >&2
+    return 1
   fi
 
-  # TODO: Allow for user creation
+  sqlite3 "$DB" < "$SCHEMA_PATH"
 
-  # Update todos config to use user-defined ~/.config/todos?
-  # TODO: Make it so that this only occurs if there's not yet a database?
-  cat > .todosrc <<EOF
-DB=$DB_PATH
+  # Add initial admin user
+  initial_user="$(get_calling_user)"
+  sqlite3 "$DB" <<EOF
+INSERT INTO users (user, role, created_by)
+VALUES ('$initial_user', 'admin', 'system');
+
+INSERT INTO user_audit (action, target_user, actor, details)
+VALUES ('add_user', '$initial_user', 'system', 'Initial admin during todos init');
 EOF
-  echo "Wrote project config .todosrc"
+
+  echo "Created new database at $DB"
+  echo "Initial admin: $initial_user"
+
+  # Create .todosrc in current directory to mark project root
+  cat > "$PWD/.todosrc" <<EOF
+# Todos database configuration
+DB=$DB
+EOF
+  echo "Created .todosrc in current directory"
+
+  echo ""
+  echo "Next steps:"
+  echo "  - Add .todosrc and .todos.db to git (commit both)"
+  echo "  - Users will be auto-created on first command"
 }
 
-add_user() {
-  if [ -z "$1" ]; then
-    echo "Error: please provide user"
-    return -1
-  else
-    USER=$1
-  fi
-
-  SELF=$(realpath "$0")
-  BASEDIR=$(dirname "$SELF")
-  DB_PATH=$(realpath $BASEDIR/../todos.db)
-
-  if [ ! -e "$DB_PATH" ]; then 
-    echo "Cannot add user as there is no database"
-    return -1
-  fi
-
-  sqlite3 "$DB_PATH" <<EOF
-INSERT OR IGNORE INTO users (user) VALUES ('$USER');
-EOF
-}
-
-del_user() {
-  if [ -z "$1" ]; then
-    echo "Error: please provide user"
-    return -1
-  else
-    USER=$1
-  fi
-
-  SELF=$(realpath "$0")
-  BASEDIR=$(dirname "$SELF")
-  DB_PATH=$(realpath $BASEDIR/../todos.db)
-
-  if [ ! -e "$DB_PATH" ]; then 
-    echo "Cannot del user as there is no database"
-    return -1
-  fi
-
-  echo "This doesn't check or handle orphaned tasks/projects/topics/etc."
-
-  sqlite3 "$DB_PATH" <<EOF
-DELETE FROM user_topics
-WHERE user_id = (SELECT id FROM users WHERE user = '$USER');
-
-DELETE FROM project_users
-WHERE user_id = (SELECT id FROM users WHERE user = '$USER');
-
-DELETE FROM users
-WHERE user = '$USER';
-EOF
-}
+# NOTE: User management functions moved to lib/users.sh
+# Use 'todos admin user' commands for user management
 
 import_from_db() {
+  # TODO: Implement database import functionality
+  return 0
 }
 
 flush_db() {
-  SELF=$(realpath "$0")
-  BASEDIR=$(dirname "$SELF")/..
-  DB_PATH=$(realpath $BASEDIR/todos.db)
+  DB_PATH=$(get_db_path)
   echo $DB_PATH
   
   if [ -e $DB_PATH ]; then
     echo "Deleting database."
     rm $DB_PATH
     if [ $1 = 'true' ]; then
-      echo "Rebuilding database with current user added."
+      echo "Rebuilding database."
       init_db
-      add_user $(whoami)
     fi
     
   else

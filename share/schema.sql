@@ -5,11 +5,12 @@ CREATE TABLE IF NOT EXISTS tasks (
   line_start INTEGER,
   line_end INTEGER,
   priority INTEGER,
-  title TEXT,
-  content TEXT,
+  content TEXT NOT NULL,  -- Required: The actual task description (todo.txt compatible)
+  title TEXT,              -- Optional: Short summary/title (Jira-style)
   status TEXT,
   created_at TEXT,
   due_date TEXT,
+  completed_at TEXT,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -54,9 +55,20 @@ CREATE TABLE IF NOT EXISTS project_topics (
 
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
-  user TEXT UNIQUE,
-  topics_subscribed TEXT,
-  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  user TEXT UNIQUE NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  created_by TEXT,
+  CHECK (role IN ('admin', 'user'))
+);
+
+CREATE TABLE IF NOT EXISTS user_audit (
+  id INTEGER PRIMARY KEY,
+  action TEXT NOT NULL,
+  target_user TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  details TEXT
 );
 
 -- May just limit topics to ~63 different ones and use binary encoding for bridging tasks to topics with `power()`

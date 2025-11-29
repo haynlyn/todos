@@ -1,0 +1,5 @@
+Fix login bug | Need to handle edge case when password is empty
+Add user profile page
+Update documentation
+Write unit tests for auth module | Cover all edge cases
+Refactor database connection logic
