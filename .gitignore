@@ -1,7 +1,8 @@
 # SQLite database
 *.db
 
-# Todo notes (lul)
-notes.txt
+# Todo notes or Claude session outputs
+*.txt
 
-.todosrc
+# Below is added for easily testing todos command. It merely added the repo's `./bin` to PATH
+.envrc
