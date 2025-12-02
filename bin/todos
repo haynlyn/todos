@@ -27,9 +27,6 @@ case "$1" in
     shift
     init_db "$@"
     echo "Database initialization complete"
-    echo "Creating user reference"
-    add_user $(whoami)
-    echo "Added current user to database"
     ;;
 
   flush|reset)
@@ -73,37 +70,69 @@ case "$1" in
     export_to_todotxt "$@"
     ;;
 
-  # User management commands
-  # Admin commands (privileged operations)
-  admin)
+  # User management commands (minimal, safe operations only)
+  user)
     shift
     case "$1" in
-      user)
+      list)
+        list_users
+        ;;
+      remove)
         shift
-        case "$1" in
-          add)
-            shift
-            admin_add_user "$@"
-            ;;
-          del|delete|remove)
-            shift
-            admin_del_user "$@"
-            ;;
-          list)
-            admin_list_users
-            ;;
-          role)
-            shift
-            admin_change_role "$@"
-            ;;
-          *)
-            echo "Usage: $0 admin user {add|del|list|role} [args]" >&2
-            exit 1
-            ;;
-        esac
+        remove_user "$@"
+        ;;
+      prune)
+        prune_users
+        ;;
+      add)
+        # HIDDEN/ADVANCED - Not in main help
+        shift
+        add_user "$@"
+        ;;
+      del|delete)
+        # HIDDEN/ADVANCED - Not in main help
+        shift
+        del_user "$@"
+        ;;
+      -h|--help|help)
+        cat <<EOF
+User Management Commands
+
+RECOMMENDED COMMANDS:
+  todos user list                List all users with task counts
+  todos user remove <username>   Remove user (only if they have 0 tasks)
+  todos user prune               Remove all users with 0 tasks
+
+ADVANCED/HIDDEN COMMANDS (Not recommended):
+  todos user add <username>      Manually add user (prefer auto-creation)
+  todos user del <username>      Delete user (prefer 'remove' or reassign workflow)
+
+USER MANAGEMENT PHILOSOPHY:
+  - Users are auto-created when they interact with the system
+  - Task ownership is managed via 'reassign' and 'reassign-all' commands
+  - User cleanup is manual and safe (only removes users with 0 tasks)
+  - Advanced commands exist for edge cases and testing
+
+TYPICAL WORKFLOWS:
+  # User leaves project
+  todos reassign-all --from bob --to alice
+  todos user remove bob
+
+  # Fix username typo
+  todos reassign-all --from alcie --to alice
+  todos user remove alcie
+
+  # Periodic cleanup
+  todos user list
+  todos user prune
+
+See USER_MANAGEMENT.md for complete documentation.
+EOF
         ;;
       *)
-        echo "Usage: $0 admin {user} [subcommand]" >&2
+        echo "Usage: $0 user {list|remove|prune} [args]" >&2
+        echo "       $0 user --help    # Show all commands including advanced" >&2
+        echo "Note: Users are auto-created on first use." >&2
         exit 1
         ;;
     esac
@@ -164,6 +193,16 @@ case "$1" in
     else
       echo "Error: must specify task id"
     fi
+    ;;
+
+  reassign)
+    shift
+    reassign_task "$@"
+    ;;
+
+  reassign-all)
+    shift
+    reassign_all_tasks "$@"
     ;;
 
   # Topic commands
@@ -249,7 +288,8 @@ case "$1" in
 Usage: $0 <command> [options]
 
 DATABASE COMMANDS:
-  init [path]              Initialize database at optional path
+  init [path]              Initialize database (run from project root)
+                           Creates .todos.db in current directory or at [path]
   flush|reset              Delete and reinitialize database
   delete                   Permanently delete database
   build [options]          Scan for TODO comments and .todo files
@@ -298,6 +338,12 @@ TASK COMMANDS:
   status <id> <status>     Set task status
   done|complete <id>       Mark task as done
 
+TASK OWNERSHIP:
+  reassign <task-id> <user>           Reassign task to another user
+  reassign <task-id> --unassign       Unassign task (set owner to NULL)
+  reassign-all --from <user> --to <user>  Bulk reassign all tasks
+  reassign-all --from <user> --unassign   Bulk unassign all tasks
+
 TOPIC COMMANDS:
   subscribe|sub <topic>    Subscribe to topic
   unsubscribe|unsub <topic> Unsubscribe from topic
@@ -322,30 +368,48 @@ STATISTICS COMMANDS:
     --tasks-per-topic      Show tasks per topic only
     (no options)           Show all statistics
 
-ADMIN COMMANDS (require admin privileges):
-  admin user add <username> [role]   Add user to database
-  admin user del <username>          Remove user from database
-  admin user list                    List all users
-  admin user role <username> <role>  Change user role (admin|user)
+USER COMMANDS (Read-only and cleanup):
+  user list                List all users with task counts
+  user remove <username>   Remove user (only if they have 0 tasks)
+  user prune               Remove all users with 0 tasks
 
 SYSTEM COMMANDS:
   uninstall [--dry-run]    Uninstall todos from system
     --dry-run              Show what would be removed without removing
 
-NOTE: Users are auto-created on first command. Use 'admin user' commands
-      only for manual user management or changing roles.
+USER MANAGEMENT PHILOSOPHY:
+  - Users are auto-created when they interact with the system (init, build, etc.)
+  - Task ownership is managed via 'reassign' and 'reassign-all' commands
+  - User cleanup is manual and safe (only removes users with 0 tasks)
+  - See USER_MANAGEMENT.md for detailed documentation
 
 EXAMPLES:
+  # Initialize from your project root directory
+  cd /path/to/your/project
   $0 init
+
+  # Create tasks (works from project root or any subdirectory)
   $0 create "Call Mom"
   $0 create "Fix authentication bug" -t "Auth Bug" -p 1 -d 2024-12-31
   $0 list -i --sort-by priority
   $0 tag 1 urgent
   $0 done 1
+
+  # Task ownership management
+  $0 reassign 42 alice              # Reassign task 42 to alice
+  $0 reassign 42 --unassign         # Unassign task 42
+  $0 reassign-all --from bob --to alice  # Bulk reassign all bob's tasks
+  $0 user remove bob                # Remove bob (if 0 tasks)
+
+  # Build and export
   $0 build --from all
   $0 export todo.txt -a
+
+  # Statistics and user management
   $0 stats
   $0 stats --status --priority
+  $0 user list                      # Show users and task counts
+  $0 user prune                     # Clean up empty users
 
 EOF
     ;;

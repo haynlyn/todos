@@ -48,7 +48,8 @@ tests/
 │   ├── test_topics.sh     # Topic management
 │   ├── test_import_export.sh  # Import/export functionality
 │   ├── test_build.sh      # Build/scanning operations
-│   └── test_config.sh     # Configuration management
+│   ├── test_config.sh     # Configuration management (23 tests)
+│   └── test_stats.sh      # Statistics
 └── integration/           # Integration tests
     ├── test_workflow.sh   # Complete user workflows
     ├── test_complex_queries.sh  # Complex query combinations
@@ -99,11 +100,21 @@ tests/
 - File association tracking
 - Line number capture
 
-**test_config.sh** - Configuration
-- Set/get/unset config values
-- Update existing values
-- Handle special characters
-- Multiple config entries
+**test_config.sh** - Configuration Management
+- Global and project-local config hierarchy
+- XDG Base Directory compliance (global config at `~/.config/todos/config`)
+- Set/get/unset config values (--global and --project scopes)
+- Update existing values without duplication
+- Project-local config overrides global config
+- Fallback to global when project not set
+- Unset project reveals global value
+- Directory creation (both global and project-local)
+- Multiple config entries in same file
+- Preserve other keys on unset
+- get_config_or_default helper function
+- Handle special characters (spaces, dots, equals signs, slashes)
+- Handle namespaced keys (e.g., list.default_sort)
+- Non-existent key error handling
 
 ### Integration Tests
 
@@ -167,6 +178,42 @@ The test framework (`test_helpers.sh`) provides:
 - Test counter tracking
 - Summary reporting with `print_summary()`
 
+### User Creation for Tests
+
+**Philosophy: Tests mirror production workflows**
+
+Tests create users using the same auto-creation mechanisms as production code:
+
+```bash
+# Create test user using production pathway
+create_test_user "alice"
+
+# This internally calls ensure_current_user() with TODOS_TEST_USER="alice"
+# Same code path as production when a new user interacts with the system
+```
+
+**Available functions:**
+- `create_test_user "username"` - **Recommended:** Uses production auto-creation via `ensure_current_user()`
+- `add_test_user "username"` - Legacy alias (calls `create_test_user()`)
+
+**Why this matters:**
+- Tests validate actual production code paths
+- Ensures auto-creation logic is thoroughly tested
+- No test-only SQL shortcuts that bypass business logic
+- Hidden commands (`user add`/`user del`) exist for edge cases but tests use auto-creation
+
+**Example:**
+```bash
+# Test multi-user scenario
+setup_test
+create_test_user "alice"  # Uses ensure_current_user()
+create_test_user "bob"    # Uses ensure_current_user()
+
+# Now alice and bob exist via the same mechanism as production
+alice_id=$(sqlite3 "$TEST_DB" "SELECT id FROM users WHERE user = 'alice';")
+bob_id=$(sqlite3 "$TEST_DB" "SELECT id FROM users WHERE user = 'bob';")
+```
+
 ## Test Data
 
 ### Fixtures
@@ -216,6 +263,33 @@ Example GitHub Actions usage:
 
 - All tests use temporary databases in `/tmp/todos_test_*.db`
 - Tests are isolated and don't affect your actual todos database
-- Tests use the same SQL logic as the main application
+- **Tests mirror production workflows** - User creation uses `ensure_current_user()`, not SQL shortcuts
+- Hidden commands (`user add`/`user del`) exist for edge cases but normal tests use auto-creation
 - Some tests document current behavior that may be enhanced later
 - Tests are POSIX-compliant shell scripts
+
+## Hidden Commands
+
+While `todos user add` and `todos user del` exist as hidden/advanced commands:
+
+- ⚠️ **Not tested by automated test suite** - These commands are simple wrappers around SQL but are not covered by tests
+- 🎯 **Tests use production pathways** - Normal tests use `create_test_user()` which calls `ensure_current_user()`
+- 💡 **By design** - Testing auto-creation validates the recommended workflow; hidden commands are for edge cases only
+
+**In test code:**
+- ✅ **Use:** `create_test_user()` which calls `ensure_current_user()`
+- ❌ **Avoid:** Direct SQL inserts or hidden commands (`user add`/`user del`)
+- 💡 **Why:** Tests should validate the same code paths users will experience
+
+**Hidden commands are documented via:**
+```bash
+todos user --help  # Shows all commands including advanced/hidden ones
+```
+
+**Rationale for not testing hidden commands:**
+- They're intentionally discouraged from normal use
+- Testing auto-creation (the recommended path) is more valuable
+- Simple SQL wrappers with minimal logic
+- Edge case/admin usage doesn't warrant full test coverage
+
+See the "User Management Philosophy" section in the main README.md for complete documentation on the user management philosophy and workflows.

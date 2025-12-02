@@ -8,7 +8,7 @@
 
 create_task() {
   # Parse arguments: content (required, positional), title (optional), priority, due_date, status, file
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   content=""
   title=""
@@ -115,7 +115,7 @@ EOF
 
 delete_task() {
   # Delete by id or title
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   identifier=""
 
@@ -162,7 +162,7 @@ delete_task() {
 }
 
 list_tasks() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   conditions="1=1"
   joins=""
@@ -240,7 +240,7 @@ EOF
 
 update_task() {
   # Update task content, status, due_date, priority
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   identifier=""
   updates=""
@@ -315,7 +315,7 @@ EOF
 
 tag_task() {
   # Add topic to task
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   task_id=""
   topic=""
@@ -359,7 +359,7 @@ tag_task() {
 }
 
 set_priority() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   task_id="$1"
   priority="$2"
@@ -375,7 +375,7 @@ set_priority() {
 }
 
 set_deadline() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   task_id="$1"
   due_date="$2"
@@ -391,7 +391,7 @@ set_deadline() {
 }
 
 rename_task() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   task_id="$1"
   new_content="$2"
@@ -410,7 +410,7 @@ rename_task() {
 }
 
 set_status() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   task_id="$1"
   status="$2"
@@ -423,4 +423,177 @@ set_status() {
   sqlite3 "$DB_PATH" "UPDATE tasks SET status = '$status', updated_at = datetime('now') WHERE id = $task_id;"
 
   echo "Set status of task $task_id to $status"
+}
+
+reassign_task() {
+  DB_PATH=$(get_db_path) || return 1
+
+  task_id=""
+  new_user=""
+  unassign=false
+
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --unassign)
+        unassign=true
+        shift
+        ;;
+      *)
+        if [ -z "$task_id" ]; then
+          task_id="$1"
+        elif [ -z "$new_user" ]; then
+          new_user="$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  if [ -z "$task_id" ]; then
+    echo "Error: must specify task id" >&2
+    echo "Usage: todos reassign <task-id> <new-user>" >&2
+    echo "       todos reassign <task-id> --unassign" >&2
+    return 1
+  fi
+
+  # Check if task exists
+  task_exists=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE id = $task_id;")
+  if [ "$task_exists" -eq 0 ]; then
+    echo "Error: Task $task_id not found" >&2
+    return 1
+  fi
+
+  if [ "$unassign" = true ]; then
+    # Unassign task
+    sqlite3 "$DB_PATH" "UPDATE tasks SET user_id = NULL, updated_at = datetime('now') WHERE id = $task_id;"
+    echo "Unassigned task $task_id"
+  else
+    if [ -z "$new_user" ]; then
+      echo "Error: must specify new user or use --unassign" >&2
+      return 1
+    fi
+
+    # Auto-create user if doesn't exist
+    user_exists=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users WHERE user = '$new_user';")
+    if [ "$user_exists" -eq 0 ]; then
+      current_user="$(get_calling_user)"
+      sqlite3 "$DB_PATH" "INSERT INTO users (user, created_by) VALUES ('$new_user', '$current_user');"
+      echo "Created new user: $new_user"
+    fi
+
+    # Get new user's ID
+    new_user_id=$(sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$new_user';")
+
+    # Reassign task
+    sqlite3 "$DB_PATH" "UPDATE tasks SET user_id = $new_user_id, updated_at = datetime('now') WHERE id = $task_id;"
+    echo "Reassigned task $task_id to $new_user"
+  fi
+
+  echo ""
+  echo "⚠️  Remember to commit .todos.db to share this change"
+}
+
+reassign_all_tasks() {
+  DB_PATH=$(get_db_path) || return 1
+
+  from_user=""
+  to_user=""
+  unassign=false
+
+  while [ "$#" -gt 0 ]; do
+    case $1 in
+      --from)
+        from_user="$2"
+        shift 2
+        ;;
+      --to)
+        to_user="$2"
+        shift 2
+        ;;
+      --unassign)
+        unassign=true
+        shift
+        ;;
+      *)
+        echo "Error: Unknown option: $1" >&2
+        echo "Usage: todos reassign-all --from <user> --to <new-user>" >&2
+        echo "       todos reassign-all --from <user> --unassign" >&2
+        return 1
+        ;;
+    esac
+  done
+
+  if [ -z "$from_user" ]; then
+    echo "Error: must specify source user with --from" >&2
+    echo "Usage: todos reassign-all --from <user> --to <new-user>" >&2
+    echo "       todos reassign-all --from <user> --unassign" >&2
+    return 1
+  fi
+
+  # Check if source user exists
+  from_user_id=$(sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$from_user';")
+  if [ -z "$from_user_id" ]; then
+    echo "Error: User '$from_user' not found" >&2
+    return 1
+  fi
+
+  # Count tasks to be reassigned
+  task_count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE user_id = $from_user_id;")
+  if [ "$task_count" -eq 0 ]; then
+    echo "User '$from_user' has no tasks to reassign"
+    return 0
+  fi
+
+  if [ "$unassign" = true ]; then
+    # Unassign all tasks
+    echo "Found $task_count task(s) owned by $from_user"
+    printf "Unassign all these tasks? [y/N]: "
+    read confirm
+    confirm=$(printf '%s' "$confirm" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$confirm" != "y" ] && [ "$confirm" != "yes" ]; then
+      echo "Aborted."
+      return 0
+    fi
+
+    sqlite3 "$DB_PATH" "UPDATE tasks SET user_id = NULL, updated_at = datetime('now') WHERE user_id = $from_user_id;"
+    echo "Unassigned $task_count task(s) from $from_user"
+  else
+    if [ -z "$to_user" ]; then
+      echo "Error: must specify target user with --to or use --unassign" >&2
+      return 1
+    fi
+
+    # Auto-create target user if doesn't exist
+    to_user_exists=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users WHERE user = '$to_user';")
+    if [ "$to_user_exists" -eq 0 ]; then
+      current_user="$(get_calling_user)"
+      sqlite3 "$DB_PATH" "INSERT INTO users (user, created_by) VALUES ('$to_user', '$current_user');"
+      echo "Created new user: $to_user"
+    fi
+
+    # Get target user's ID
+    to_user_id=$(sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$to_user';")
+
+    # Confirm reassignment
+    echo "Found $task_count task(s) owned by $from_user"
+    printf "Reassign all to $to_user? [y/N]: "
+    read confirm
+    confirm=$(printf '%s' "$confirm" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$confirm" != "y" ] && [ "$confirm" != "yes" ]; then
+      echo "Aborted."
+      return 0
+    fi
+
+    # Reassign all tasks
+    sqlite3 "$DB_PATH" "UPDATE tasks SET user_id = $to_user_id, updated_at = datetime('now') WHERE user_id = $from_user_id;"
+    echo "Reassigned $task_count task(s) from $from_user to $to_user"
+  fi
+
+  echo ""
+  echo "⚠️  Remember to commit .todos.db to share this change"
+  echo ""
+  echo "Tip: You can now remove the empty user with:"
+  echo "  todos user remove $from_user"
 }

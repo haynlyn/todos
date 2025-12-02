@@ -30,7 +30,8 @@ check_requirements() {
 }
 
 main() {
-  printf "Installing todos task management tool...\n\n"
+  printf "Installing todos task management tool...\n"
+  printf "Installation prefix: ${PREFIX:-$HOME/.local}\n\n"
 
   # Check requirements
   if ! check_requirements; then
@@ -39,10 +40,11 @@ main() {
 
   printf "${GREEN}✓${NC} SQLite 3 found\n"
 
-  # Determine installation directories
-  INSTALL_BIN="${HOME}/.local/bin"
-  INSTALL_LIB="${HOME}/.local/lib/todos"
-  INSTALL_SHARE="${HOME}/.local/share/todos"  # For schema.sql only, not database
+  # Determine installation directories (respects PREFIX environment variable)
+  PREFIX="${PREFIX:-$HOME/.local}"
+  INSTALL_BIN="$PREFIX/bin"
+  INSTALL_LIB="$PREFIX/lib/todos"
+  INSTALL_SHARE="$PREFIX/share/todos"
 
   # Get script directory (where install.sh lives)
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -79,9 +81,20 @@ MANIFEST_HEADER
   # Copy and modify the main executable
   printf "Installing executable to ${INSTALL_BIN}/todos...\n"
 
-  # Read the original bin/todos and modify the LIBDIR detection
-  sed '5,9s|if \[ -d "\$BASEDIR/../lib" \]; then|if [ -d "$HOME/.local/lib/todos" ]; then|; 6s|LIBDIR="\$BASEDIR/../lib"|LIBDIR="$HOME/.local/lib/todos"|' \
-    "$SCRIPT_DIR/bin/todos" > "$INSTALL_BIN/todos"
+  # Create the installed version with hardcoded LIBDIR (based on PREFIX at install time)
+  cat > "$INSTALL_BIN/todos" <<INSTALLED_TODOS
+#!/bin/sh
+LIBDIR="$INSTALL_LIB"
+
+# Import libraries
+. "\$LIBDIR/common.sh"
+. "\$LIBDIR/db.sh"
+. "\$LIBDIR/users.sh"
+. "\$LIBDIR/tasks.sh"
+INSTALLED_TODOS
+
+  # Append everything after the library imports from the original
+  tail -n +16 "$SCRIPT_DIR/bin/todos" >> "$INSTALL_BIN/todos"
 
   chmod +x "$INSTALL_BIN/todos"
   echo "FILE=$INSTALL_BIN/todos" >> "$MANIFEST"
@@ -109,7 +122,7 @@ MANIFEST_HEADER
       printf "${YELLOW}!${NC} ${INSTALL_BIN} is not in your PATH\n"
       printf "\n"
       printf "Add this line to your ~/.bashrc, ~/.zshrc, or ~/.profile:\n"
-      printf "  export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
+      printf "  export PATH=\"${INSTALL_BIN}:\$PATH\"\n"
       printf "\n"
       printf "Then reload your shell or run:\n"
       printf "  source ~/.bashrc  # or ~/.zshrc\n"

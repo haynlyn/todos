@@ -10,26 +10,20 @@
 ensure_current_user() {
   # Use TODOS_TEST_USER for testing, otherwise whoami
   current_user="$(get_calling_user)"
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
-  # Check if users database exists
-  if [ ! -f "$USERS_DB" ]; then
-    echo "Error: User database not found. Run 'todos init' first." >&2
+  # Check if database exists
+  if [ ! -f "$DB_PATH" ]; then
+    echo "Error: Database not found. Run 'todos init' first." >&2
     return 1
   fi
 
   # Check if user exists
-  user_exists=$(sqlite3 "$USERS_DB" "SELECT COUNT(*) FROM users WHERE user = '$current_user';")
+  user_exists=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users WHERE user = '$current_user';")
 
   if [ "$user_exists" -eq 0 ]; then
     # Auto-create user
-    sqlite3 "$DB_PATH" <<EOF
-INSERT INTO users (user, role, created_by)
-VALUES ('$current_user', 'user', '$current_user');
-
-INSERT INTO user_audit (action, target_user, actor, details)
-VALUES ('add_user', '$current_user', '$current_user', 'Auto-created on first command');
-EOF
+    sqlite3 "$DB_PATH" "INSERT INTO users (user, created_by) VALUES ('$current_user', '$current_user');"
     echo "Created user: $current_user"
   fi
 }
@@ -38,145 +32,179 @@ EOF
 get_current_user_id() {
   # Use TODOS_TEST_USER for testing, otherwise whoami
   current_user="$(get_calling_user)"
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$current_user';"
 }
 
-# Check if current user is admin
-is_admin() {
-  # Use TODOS_TEST_USER for testing, otherwise whoami
+# Remove a user from the database (SAFE: only if user has 0 tasks)
+remove_user() {
+  target_user="$1"
+
+  if [ -z "$target_user" ]; then
+    echo "Error: Username required" >&2
+    echo "Usage: todos user remove <username>" >&2
+    return 1
+  fi
+
   current_user="$(get_calling_user)"
-  DB_PATH=$(get_db_path)
-
-  count=$(sqlite3 "$USERS_DB" "SELECT COUNT(*) FROM users WHERE user = '$current_user' AND role = 'admin';")
-
-  [ "$count" -gt 0 ]
-}
-
-# Require admin privileges or exit
-require_admin() {
-  if ! is_admin; then
-    echo "Error: This command requires admin privileges" >&2
-    echo "" >&2
-    echo "Only admin users can perform this operation." >&2
-    echo "Contact your project administrator for access." >&2
-    exit 1
-  fi
-}
-
-# Internal function to add a user without admin checks
-# Used by tests and internal operations
-add_user() {
-  target_user="$1"
-  role="${2:-user}"
-  created_by="${3:-system}"
-
-  if [ -z "$target_user" ]; then
-    echo "Error: Username required" >&2
-    return 1
-  fi
-
-  DB_PATH=$(get_db_path)
-
-  # Check if user already exists
-  user_exists=$(sqlite3 "$USERS_DB" "SELECT COUNT(*) FROM users WHERE user = '$target_user';")
-  if [ "$user_exists" -gt 0 ]; then
-    echo "Error: User '$target_user' already exists" >&2
-    return 1
-  fi
-
-  # Add user
-  sqlite3 "$DB_PATH" <<EOF
-INSERT INTO users (user, role, created_by)
-VALUES ('$target_user', '$role', '$created_by');
-
-INSERT INTO user_audit (action, target_user, actor, details)
-VALUES ('add_user', '$target_user', '$created_by', 'role=$role');
-EOF
-
-  return 0
-}
-
-# Internal function to delete a user without admin checks
-# Used by tests and internal operations
-del_user() {
-  target_user="$1"
-
-  if [ -z "$target_user" ]; then
-    echo "Error: Username required" >&2
-    return 1
-  fi
-
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   # Check if user exists
-  user_exists=$(sqlite3 "$USERS_DB" "SELECT COUNT(*) FROM users WHERE user = '$target_user';")
+  user_exists=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users WHERE user = '$target_user';")
   if [ "$user_exists" -eq 0 ]; then
     echo "Error: User '$target_user' not found" >&2
+    return 1
+  fi
+
+  # Check if user has any tasks
+  user_id=$(sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$target_user';")
+  task_count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE user_id = $user_id;")
+
+  if [ "$task_count" -gt 0 ]; then
+    echo "Error: Cannot remove user '$target_user' - they own $task_count task(s)" >&2
+    echo "Reassign their tasks first:" >&2
+    echo "  todos reassign-all --from $target_user --to <new-user>" >&2
+    return 1
+  fi
+
+  # Prevent deleting yourself
+  if [ "$target_user" = "$current_user" ]; then
+    echo "Error: Cannot remove your own user account" >&2
     return 1
   fi
 
   # Delete user
   sqlite3 "$DB_PATH" "DELETE FROM users WHERE user = '$target_user';"
 
-  return 0
+  echo "Removed user: $target_user"
+  echo ""
+  echo "⚠️  Remember to commit .todos.db to share this change"
 }
 
-# Add user (admin only)
-admin_add_user() {
-  target_user="$1"
-  role="${2:-user}"
+# Prune all users with 0 tasks
+prune_users() {
+  DB_PATH=$(get_db_path) || return 1
+  current_user="$(get_calling_user)"
 
-  require_admin
+  # Find users with 0 tasks (excluding current user)
+  empty_users=$(sqlite3 "$DB_PATH" "
+    SELECT u.user
+    FROM users u
+    LEFT JOIN tasks t ON u.id = t.user_id
+    WHERE u.user != '$current_user'
+    GROUP BY u.id, u.user
+    HAVING COUNT(t.id) = 0;
+  ")
+
+  if [ -z "$empty_users" ]; then
+    echo "No users to prune (all users have tasks or are the current user)"
+    return 0
+  fi
+
+  echo "Found users with 0 tasks:"
+  echo "$empty_users"
+  echo ""
+  printf "Remove these users? [y/N]: "
+  read confirm
+  confirm=$(printf '%s' "$confirm" | tr '[:upper:]' '[:lower:]')
+
+  if [ "$confirm" != "y" ] && [ "$confirm" != "yes" ]; then
+    echo "Aborted."
+    return 0
+  fi
+
+  # Delete users with 0 tasks
+  deleted=$(sqlite3 "$DB_PATH" "
+    DELETE FROM users
+    WHERE id IN (
+      SELECT u.id
+      FROM users u
+      LEFT JOIN tasks t ON u.id = t.user_id
+      WHERE u.user != '$current_user'
+      GROUP BY u.id
+      HAVING COUNT(t.id) = 0
+    );
+    SELECT changes();
+  ")
+
+  echo "Removed $deleted user(s)"
+  echo ""
+  echo "⚠️  Remember to commit .todos.db to share this change"
+}
+
+# List all users with task counts
+list_users() {
+  DB_PATH=$(get_db_path) || return 1
+
+  echo "Users:"
+  sqlite3 "$DB_PATH" <<EOF
+.mode column
+.headers on
+SELECT
+  u.user,
+  COUNT(t.id) as tasks,
+  u.created_at,
+  u.created_by
+FROM users u
+LEFT JOIN tasks t ON u.id = t.user_id
+GROUP BY u.id, u.user, u.created_at, u.created_by
+ORDER BY tasks DESC, u.created_at;
+EOF
+}
+
+# ============================================================================
+# ADVANCED/HIDDEN COMMANDS - Not recommended for normal use
+# These commands exist for edge cases, testing, and admin tasks.
+# Normal workflow should rely on auto-creation via ensure_current_user()
+# ============================================================================
+
+# Add a user to the database (ADVANCED - prefer auto-creation)
+add_user() {
+  target_user="$1"
 
   if [ -z "$target_user" ]; then
     echo "Error: Username required" >&2
-    echo "Usage: todos admin user add <username> [role]" >&2
+    echo "Usage: todos user add <username>" >&2
     return 1
   fi
 
   current_user="$(get_calling_user)"
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   # Check if user already exists
-  user_exists=$(sqlite3 "$USERS_DB" "SELECT COUNT(*) FROM users WHERE user = '$target_user';")
+  user_exists=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users WHERE user = '$target_user';")
   if [ "$user_exists" -gt 0 ]; then
     echo "Error: User '$target_user' already exists" >&2
     return 1
   fi
 
   # Add user
-  sqlite3 "$DB_PATH" <<EOF
-INSERT INTO users (user, role, created_by)
-VALUES ('$target_user', '$role', '$current_user');
+  sqlite3 "$DB_PATH" "INSERT INTO users (user, created_by) VALUES ('$target_user', '$current_user');"
 
-INSERT INTO user_audit (action, target_user, actor, details)
-VALUES ('add_user', '$target_user', '$current_user', 'role=$role');
-EOF
-
-  echo "Added user: $target_user (role: $role)"
+  echo "Added user: $target_user"
   echo ""
-  echo "⚠️  Remember to commit .todos.users.db to share this change"
+  echo "⚠️  Remember to commit .todos.db to share this change"
+  echo ""
+  echo "NOTE: This is an advanced command. Users are normally auto-created."
+  echo "      See 'todos user --help' for details."
 }
 
-# Delete user (admin only)
-admin_del_user() {
+# Delete a user from the database (ADVANCED - prefer 'user remove')
+del_user() {
   target_user="$1"
-
-  require_admin
 
   if [ -z "$target_user" ]; then
     echo "Error: Username required" >&2
-    echo "Usage: todos admin user del <username>" >&2
+    echo "Usage: todos user del <username>" >&2
     return 1
   fi
 
   current_user="$(get_calling_user)"
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   # Check if user exists
-  user_exists=$(sqlite3 "$USERS_DB" "SELECT COUNT(*) FROM users WHERE user = '$target_user';")
+  user_exists=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM users WHERE user = '$target_user';")
   if [ "$user_exists" -eq 0 ]; then
     echo "Error: User '$target_user' not found" >&2
     return 1
@@ -188,75 +216,32 @@ admin_del_user() {
     return 1
   fi
 
-  # Delete user
-  sqlite3 "$DB_PATH" <<EOF
-DELETE FROM users WHERE user = '$target_user';
+  # Check if user has tasks (WARNING, not blocking)
+  user_id=$(sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$target_user';")
+  task_count=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM tasks WHERE user_id = $user_id;")
 
-INSERT INTO user_audit (action, target_user, actor, details)
-VALUES ('del_user', '$target_user', '$current_user', '');
-EOF
+  if [ "$task_count" -gt 0 ]; then
+    echo "⚠️  WARNING: User '$target_user' owns $task_count task(s)" >&2
+    echo "Deleting this user will NOT delete their tasks, but may break references." >&2
+    echo "" >&2
+    printf "Continue anyway? [y/N]: "
+    read confirm
+    confirm=$(printf '%s' "$confirm" | tr '[:upper:]' '[:lower:]')
+
+    if [ "$confirm" != "y" ] && [ "$confirm" != "yes" ]; then
+      echo "Aborted."
+      return 0
+    fi
+  fi
+
+  # Delete user
+  sqlite3 "$DB_PATH" "DELETE FROM users WHERE user = '$target_user';"
 
   echo "Deleted user: $target_user"
   echo ""
-  echo "⚠️  Remember to commit .todos.users.db to share this change"
-  echo "⚠️  Note: This does not delete tasks owned by this user"
-}
-
-# List all users
-admin_list_users() {
-  DB_PATH=$(get_db_path)
-
-  echo "Users:"
-  sqlite3 "$DB_PATH" <<EOF
-.mode column
-.headers on
-SELECT user, role, created_at FROM users ORDER BY created_at;
-EOF
-}
-
-# Change user role (admin only)
-admin_change_role() {
-  target_user="$1"
-  new_role="$2"
-
-  require_admin
-
-  if [ -z "$target_user" ] || [ -z "$new_role" ]; then
-    echo "Error: Username and role required" >&2
-    echo "Usage: todos admin user role <username> <admin|user>" >&2
-    return 1
-  fi
-
-  if [ "$new_role" != "admin" ] && [ "$new_role" != "user" ]; then
-    echo "Error: Role must be 'admin' or 'user'" >&2
-    return 1
-  fi
-
-  current_user="$(get_calling_user)"
-  DB_PATH=$(get_db_path)
-
-  # Get old role
-  old_role=$(sqlite3 "$USERS_DB" "SELECT role FROM users WHERE user = '$target_user';")
-
-  if [ -z "$old_role" ]; then
-    echo "Error: User '$target_user' not found" >&2
-    return 1
-  fi
-
-  if [ "$old_role" = "$new_role" ]; then
-    echo "User '$target_user' already has role: $new_role"
-    return 0
-  fi
-
-  # Update role
-  sqlite3 "$DB_PATH" <<EOF
-UPDATE users SET role = '$new_role' WHERE user = '$target_user';
-
-INSERT INTO user_audit (action, target_user, actor, details)
-VALUES ('change_role', '$target_user', '$current_user', 'old_role=$old_role, new_role=$new_role');
-EOF
-
-  echo "Changed role for '$target_user': $old_role → $new_role"
+  echo "⚠️  Remember to commit .todos.db to share this change"
   echo ""
-  echo "⚠️  Remember to commit .todos.users.db to share this change"
+  echo "NOTE: This is an advanced command. Prefer 'todos user remove' (safe)"
+  echo "      or 'todos reassign-all' + 'todos user remove' workflow."
+  echo "      See 'todos user --help' for details."
 }

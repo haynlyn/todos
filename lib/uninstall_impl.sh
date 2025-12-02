@@ -28,11 +28,12 @@ perform_uninstall() {
 
   printf "Uninstalling todos task management tool...\n\n"
 
-  # Default installation directories
-  DEFAULT_BIN="${HOME}/.local/bin"
-  DEFAULT_LIB="${HOME}/.local/lib/todos"
-  DEFAULT_SHARE="${HOME}/.local/share/todos"
-  MANIFEST="${DEFAULT_SHARE}/manifest"
+  # Default installation directories (respects PREFIX environment variable)
+  PREFIX="${PREFIX:-$HOME/.local}"
+  DEFAULT_BIN="$PREFIX/bin"
+  DEFAULT_LIB="$PREFIX/lib/todos"
+  DEFAULT_SHARE="$PREFIX/share/todos"
+  MANIFEST="$DEFAULT_SHARE/manifest"
 
   # Try to read manifest
   if [ -f "$MANIFEST" ]; then

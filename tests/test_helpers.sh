@@ -54,7 +54,7 @@ setup_test() {
   sqlite3 "$TEST_DB" < "$SCHEMA_PATH" 2>/dev/null
 
   # Add test user to database
-  sqlite3 "$TEST_DB" "INSERT INTO users (user, role) VALUES ('testuser', 'admin');" 2>/dev/null
+  sqlite3 "$TEST_DB" "INSERT INTO users (user) VALUES ('testuser');" 2>/dev/null
 
   # Set test user environment variable for library functions
   export TODOS_TEST_USER="testuser"
@@ -67,11 +67,29 @@ teardown_test() {
   fi
 }
 
-# Add user to test database
-add_test_user() {
+# Create test user using production auto-creation mechanism
+# This mirrors how users are created in production: via ensure_current_user()
+create_test_user() {
   username="$1"
-  role="${2:-user}"
-  sqlite3 "$TEST_DB" "INSERT OR IGNORE INTO users (user, role) VALUES ('$username', '$role');" 2>/dev/null
+
+  # Save current test user
+  original_user="$TODOS_TEST_USER"
+
+  # Temporarily switch to the user we want to create
+  export TODOS_TEST_USER="$username"
+
+  # Use the actual production auto-creation logic
+  # This is defined in lib/users.sh and is the same code path used in production
+  ensure_current_user > /dev/null 2>&1
+
+  # Restore original test user
+  export TODOS_TEST_USER="$original_user"
+}
+
+# Legacy alias for backward compatibility (deprecated)
+# New tests should use create_test_user()
+add_test_user() {
+  create_test_user "$@"
 }
 
 # Assertion helpers

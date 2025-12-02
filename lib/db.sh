@@ -37,34 +37,22 @@ init_db() {
 
   sqlite3 "$DB" < "$SCHEMA_PATH"
 
-  # Add initial admin user
+  # Add initial user
   initial_user="$(get_calling_user)"
-  sqlite3 "$DB" <<EOF
-INSERT INTO users (user, role, created_by)
-VALUES ('$initial_user', 'admin', 'system');
-
-INSERT INTO user_audit (action, target_user, actor, details)
-VALUES ('add_user', '$initial_user', 'system', 'Initial admin during todos init');
-EOF
+  sqlite3 "$DB" "INSERT INTO users (user, created_by) VALUES ('$initial_user', 'system');"
 
   echo "Created new database at $DB"
-  echo "Initial admin: $initial_user"
-
-  # Create .todosrc in current directory to mark project root
-  cat > "$PWD/.todosrc" <<EOF
-# Todos database configuration
-DB=$DB
-EOF
-  echo "Created .todosrc in current directory"
+  echo "Initial user: $initial_user"
 
   echo ""
   echo "Next steps:"
-  echo "  - Add .todosrc and .todos.db to git (commit both)"
+  echo "  - Add .todos.db to git (commit it to share with team)"
   echo "  - Users will be auto-created on first command"
+  echo "  - All todos commands will work from this directory or any subdirectory"
 }
 
 # NOTE: User management functions moved to lib/users.sh
-# Use 'todos admin user' commands for user management
+# Use 'todos user' commands for user management
 
 import_from_db() {
   # TODO: Implement database import functionality
@@ -72,20 +60,27 @@ import_from_db() {
 }
 
 flush_db() {
-  DB_PATH=$(get_db_path)
-  echo $DB_PATH
-  
-  if [ -e $DB_PATH ]; then
-    echo "Deleting database."
-    rm $DB_PATH
-    if [ $1 = 'true' ]; then
-      echo "Rebuilding database."
-      init_db
-    fi
-    
-  else
-    echo "No database found - this should be moved further up. Don't allow any db operations if one doesn't exist."
+  # Validate parameter
+  if [ -z "$1" ]; then
+    echo "Error: flush_db requires reinit parameter (true/false)" >&2
+    return 1
   fi
 
-  return 1
+  DB_PATH=$(get_db_path) || return 1
+
+  if [ ! -f "$DB_PATH" ]; then
+    echo "Error: Database not found at $DB_PATH" >&2
+    return 1
+  fi
+
+  echo "Database path: $DB_PATH"
+  echo "Deleting database..."
+  rm "$DB_PATH"
+
+  if [ "$1" = 'true' ]; then
+    echo "Rebuilding database..."
+    init_db
+  fi
+
+  return 0
 }

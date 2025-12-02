@@ -68,8 +68,8 @@ teardown_test
 # Test 3: Multi-user collaboration scenario
 setup_test
 # Add users
-add_user "alice" > /dev/null 2>&1
-add_user "bob" > /dev/null 2>&1
+add_test_user "alice"
+add_test_user "bob"
 
 # Get user IDs
 alice_id=$(sqlite3 "$TEST_DB" "SELECT id FROM users WHERE user = 'alice';")

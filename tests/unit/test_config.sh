@@ -1,104 +1,270 @@
 #!/bin/sh
-# Unit tests for config operations
+# Unit tests for configuration management (global + project-local hierarchy)
 
 # Load test helpers
 . "$(dirname "$0")/../test_helpers.sh"
 
-# Load library
+# Load libraries
 LIBDIR=$(get_lib_path)
 . "$LIBDIR/config.sh"
 
-echo "${BLUE}Running Config Tests${NC}"
+echo "${BLUE}Running Configuration Tests${NC}"
 echo "========================================"
 
-# Test 1: Set config value
-setup_test
-test_config="/tmp/test_config_$$.conf"
-# Override get_config_path for testing
-get_config_path() { echo "$test_config"; }
+# Setup: Create temporary HOME for testing
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+HOME_BACKUP="$HOME"
 
-set_config "DB" "/path/to/db" > /dev/null 2>&1
-assert_file_exists "$test_config" "Config file should be created"
-content=$(cat "$test_config")
-assert_contains "$content" "DB=/path/to/db" "Config should contain DB setting"
-rm -f "$test_config"
+# Test 1: Set and get global config
+setup_test
+HOME="$TEST_HOME"
+set_config --global "test.key" "test_value" > /dev/null 2>&1
+result=$(get_config "test.key")
+assert_equal "test_value" "$result" "Set and get global config"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
 teardown_test
 
-# Test 2: Get config value
+# Test 2: Set and get project config
 setup_test
-test_config="/tmp/test_config_$$.conf"
-get_config_path() { echo "$test_config"; }
-
-set_config "MIN_PRIORITY" "3" > /dev/null 2>&1
-value=$(get_config "MIN_PRIORITY" 2>&1)
-assert_contains "$value" "3" "Should retrieve config value"
-rm -f "$test_config"
+HOME="$TEST_HOME"
+cd "$PWD"  # Ensure we're in test directory
+set_config "test.key" "project_value" > /dev/null 2>&1
+result=$(get_config "test.key")
+assert_equal "project_value" "$result" "Set and get project config"
+rm -rf ".todos"  # Clean up project-local config
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
 teardown_test
 
-# Test 3: Update existing config value
+# Test 3: Project config overrides global
 setup_test
-test_config="/tmp/test_config_$$.conf"
-get_config_path() { echo "$test_config"; }
-
-set_config "DB" "/old/path" > /dev/null 2>&1
-set_config "DB" "/new/path" > /dev/null 2>&1
-content=$(cat "$test_config")
-assert_contains "$content" "/new/path" "Config should contain updated value"
-assert_not_contains "$content" "/old/path" "Config should not contain old value"
-rm -f "$test_config"
+HOME="$TEST_HOME"
+set_config --global "priority" "3" > /dev/null 2>&1
+set_config "priority" "1" > /dev/null 2>&1
+result=$(get_config "priority")
+assert_equal "1" "$result" "Project config overrides global"
+rm -rf ".todos"  # Clean up project-local config
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
 teardown_test
 
-# Test 4: Unset config value
+# Test 4: Fallback to global when project not set
 setup_test
-test_config="/tmp/test_config_$$.conf"
-get_config_path() { echo "$test_config"; }
-
-set_config "TEST_KEY" "test_value" > /dev/null 2>&1
-unset_config "TEST_KEY" > /dev/null 2>&1
-content=$(cat "$test_config" 2>/dev/null || echo "")
-assert_not_contains "$content" "TEST_KEY" "Config should not contain unset key"
-rm -f "$test_config"
+HOME="$TEST_HOME"
+set_config --global "fallback.key" "global_value" > /dev/null 2>&1
+result=$(get_config "fallback.key")
+assert_equal "global_value" "$result" "Fallback to global when project not set"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
 teardown_test
 
-# Test 5: Get non-existent config value
+# Test 5: Update existing key
 setup_test
-test_config="/tmp/test_config_$$.conf"
-get_config_path() { echo "$test_config"; }
-
-touch "$test_config"
-result=$(get_config "NONEXISTENT" 2>&1)
-assert_contains "$result" "not set" "Should indicate key is not set"
-rm -f "$test_config"
+HOME="$TEST_HOME"
+set_config --global "update.key" "value1" > /dev/null 2>&1
+set_config --global "update.key" "value2" > /dev/null 2>&1
+result=$(get_config "update.key")
+assert_equal "value2" "$result" "Update existing key"
+# Verify only one line in config (XDG-compliant path)
+count=$(grep -c "update.key=" "$TEST_HOME/.config/todos/config" 2>/dev/null || echo "0")
+assert_equal "1" "$count" "Should have only one line for updated key"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
 teardown_test
 
-# Test 6: Multiple config values
+# Test 6: Unset global config
 setup_test
-test_config="/tmp/test_config_$$.conf"
-get_config_path() { echo "$test_config"; }
-
-set_config "KEY1" "value1" > /dev/null 2>&1
-set_config "KEY2" "value2" > /dev/null 2>&1
-set_config "KEY3" "value3" > /dev/null 2>&1
-
-val1=$(get_config "KEY1" 2>&1)
-val2=$(get_config "KEY2" 2>&1)
-val3=$(get_config "KEY3" 2>&1)
-
-assert_contains "$val1" "value1" "Should retrieve KEY1"
-assert_contains "$val2" "value2" "Should retrieve KEY2"
-assert_contains "$val3" "value3" "Should retrieve KEY3"
-rm -f "$test_config"
+HOME="$TEST_HOME"
+set_config --global "unset.key" "value" > /dev/null 2>&1
+unset_config --global "unset.key" > /dev/null 2>&1
+get_config "unset.key" > /dev/null 2>&1
+test_exit=$?
+assert_equal "1" "$test_exit" "Unset global config returns error"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
 teardown_test
 
-# Test 7: Config with special characters in value
+# Test 7: Unset project reveals global
 setup_test
-test_config="/tmp/test_config_$$.conf"
-get_config_path() { echo "$test_config"; }
-
-set_config "PATH" "/path/with spaces/and-dashes" > /dev/null 2>&1
-value=$(get_config "PATH" 2>&1)
-assert_contains "$value" "with spaces" "Should handle spaces in values"
-rm -f "$test_config"
+HOME="$TEST_HOME"
+set_config --global "reveal.key" "global_value" > /dev/null 2>&1
+set_config "reveal.key" "project_value" > /dev/null 2>&1
+result=$(get_config "reveal.key")
+assert_equal "project_value" "$result" "Before unset: project value"
+unset_config "reveal.key" > /dev/null 2>&1
+result=$(get_config "reveal.key")
+assert_equal "global_value" "$result" "After unset: global value revealed"
+rm -rf ".todos"  # Clean up project-local config
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
 teardown_test
+
+# Test 8: Multiple keys in same file
+setup_test
+HOME="$TEST_HOME"
+set_config --global "key1" "value1" > /dev/null 2>&1
+set_config --global "key2" "value2" > /dev/null 2>&1
+set_config --global "key3" "value3" > /dev/null 2>&1
+result1=$(get_config "key1")
+result2=$(get_config "key2")
+result3=$(get_config "key3")
+assert_equal "value1" "$result1" "Multiple keys: key1"
+assert_equal "value2" "$result2" "Multiple keys: key2"
+assert_equal "value3" "$result3" "Multiple keys: key3"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 9: Preserve other keys on unset
+setup_test
+HOME="$TEST_HOME"
+set_config --global "preserve.key1" "value1" > /dev/null 2>&1
+set_config --global "preserve.key2" "value2" > /dev/null 2>&1
+set_config --global "preserve.key3" "value3" > /dev/null 2>&1
+unset_config --global "preserve.key2" > /dev/null 2>&1
+result1=$(get_config "preserve.key1")
+result3=$(get_config "preserve.key3")
+assert_equal "value1" "$result1" "Preserve key1 after unsetting key2"
+assert_equal "value3" "$result3" "Preserve key3 after unsetting key2"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 10: Value with spaces
+setup_test
+HOME="$TEST_HOME"
+set_config --global "spaces.key" "value with spaces" > /dev/null 2>&1
+result=$(get_config "spaces.key")
+assert_equal "value with spaces" "$result" "Value with spaces"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 11: Key with dots (namespace)
+setup_test
+HOME="$TEST_HOME"
+set_config --global "list.default_sort" "priority" > /dev/null 2>&1
+result=$(get_config "list.default_sort")
+assert_equal "priority" "$result" "Key with dots (namespace)"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 12: Get non-existent key
+setup_test
+HOME="$TEST_HOME"
+get_config "nonexistent.key" > /dev/null 2>&1
+test_exit=$?
+assert_equal "1" "$test_exit" "Get non-existent key returns error"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 13: Config directory creation (global)
+setup_test
+HOME="$TEST_HOME"
+# Directory doesn't exist yet (XDG-compliant path)
+test ! -d "$TEST_HOME/.config/todos" || rm -rf "$TEST_HOME/.config/todos"
+set_config --global "test.key" "value" > /dev/null 2>&1
+test -d "$TEST_HOME/.config/todos"
+dir_exists=$?
+assert_equal "0" "$dir_exists" "Global config directory created"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 14: Config directory creation (project)
+setup_test
+HOME="$TEST_HOME"
+# Directory doesn't exist yet
+test ! -d ".todos" || rm -rf ".todos"
+set_config "test.key" "value" > /dev/null 2>&1
+test -d ".todos"
+dir_exists=$?
+assert_equal "0" "$dir_exists" "Project config directory created"
+rm -rf ".todos"  # Clean up project-local config
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 15: get_config_or_default with set value
+setup_test
+HOME="$TEST_HOME"
+set_config --global "default.test" "actual_value" > /dev/null 2>&1
+result=$(get_config_or_default "default.test" "default_value")
+assert_equal "actual_value" "$result" "get_config_or_default returns actual value"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 16: get_config_or_default with unset value
+setup_test
+HOME="$TEST_HOME"
+result=$(get_config_or_default "unset.test" "default_value")
+assert_equal "default_value" "$result" "get_config_or_default returns default"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 17: Value with equals sign
+setup_test
+HOME="$TEST_HOME"
+set_config --global "equals.key" "value=with=equals" > /dev/null 2>&1
+result=$(get_config "equals.key")
+assert_equal "value=with=equals" "$result" "Value with equals sign"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Test 18: Special characters in value
+setup_test
+HOME="$TEST_HOME"
+set_config --global "special.key" "value/with/slashes" > /dev/null 2>&1
+result=$(get_config "special.key")
+assert_equal "value/with/slashes" "$result" "Special characters (slashes)"
+HOME="$HOME_BACKUP"
+rm -rf "$TEST_HOME"
+TEST_HOME="/tmp/todos_test_home_$$"
+mkdir -p "$TEST_HOME"
+teardown_test
+
+# Cleanup
+rm -rf "$TEST_HOME"
 
 print_summary

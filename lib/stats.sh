@@ -6,7 +6,7 @@
 
 # Get count of tasks by status
 get_status_counts() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   echo "Status Counts:"
   sqlite3 "$DB_PATH" <<EOF
@@ -21,7 +21,7 @@ EOF
 
 # Get count of tasks by priority
 get_priority_counts() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   echo "Priority Counts:"
   sqlite3 "$DB_PATH" <<EOF
@@ -39,7 +39,7 @@ EOF
 
 # Get count of tasks by date ranges (created, due, completed)
 get_date_counts() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   echo "Date Counts:"
   echo ""
@@ -93,7 +93,7 @@ EOF
 
 # Get count of tasks by topic
 get_topic_counts() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   echo "Topic Counts:"
   sqlite3 "$DB_PATH" <<EOF
@@ -109,7 +109,7 @@ EOF
 
 # Get count of tasks by user
 get_user_counts() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   echo "User Task Counts:"
   sqlite3 "$DB_PATH" <<EOF
@@ -125,7 +125,7 @@ EOF
 
 # Get count of topic subscriptions by user
 get_user_subscription_counts() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   echo "User Topic Subscriptions:"
   sqlite3 "$DB_PATH" <<EOF
@@ -141,7 +141,7 @@ EOF
 
 # Get count of tasks per topic (tasks-per-topic)
 get_tasks_per_topic() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   echo "Tasks Per Topic:"
   sqlite3 "$DB_PATH" <<EOF
@@ -157,7 +157,7 @@ EOF
 
 # Show all statistics
 show_stats() {
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   # Parse options
   show_all=true

@@ -8,7 +8,7 @@
 
 subscribe_topic() {
   # Subscribe user to topic
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   topic=""
   use_specific_user=false
@@ -45,7 +45,7 @@ subscribe_topic() {
   # Get user_id (current user or specific user if -u flag was used)
   if [ "$use_specific_user" = true ]; then
     # For backward compatibility with tests using -u flag
-    DB_PATH=$(get_db_path)
+    DB_PATH=$(get_db_path) || return 1
     user_id=$(sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$specific_user';")
     if [ -z "$user_id" ]; then
       echo "Error: User '$specific_user' not found" >&2
@@ -70,7 +70,7 @@ subscribe_topic() {
 
 unsubscribe_topic() {
   # Unsubscribe user from topic
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   topic=""
   use_specific_user=false
@@ -106,7 +106,7 @@ unsubscribe_topic() {
 
   # Get user_id (current user or specific user if -u flag was used)
   if [ "$use_specific_user" = true ]; then
-    DB_PATH=$(get_db_path)
+    DB_PATH=$(get_db_path) || return 1
     user_id=$(sqlite3 "$DB_PATH" "SELECT id FROM users WHERE user = '$specific_user';")
     if [ -z "$user_id" ]; then
       echo "Error: User '$specific_user' not found" >&2
@@ -144,7 +144,7 @@ unsubscribe_topic() {
 
 list_topics() {
   # List all topics or topics for a specific user
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   user=$(get_calling_user)
   show_all=false

@@ -11,7 +11,7 @@ import_from_todotxt() {
   # Format for incomplete: (A) 2023-01-15 Task title +project @context due:2023-02-01
   # Format for completed: x 2023-01-20 2023-01-15 Task title +project @context
   # Note: We preserve priority for completed tasks even though standard todo.txt doesn't
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   input_file="$1"
 
@@ -257,7 +257,7 @@ export_to_todotxt() {
   # Format for incomplete: (A) 2023-01-15 Task title +project @context due:2023-02-01
   # Format for completed: x 2023-01-20 (A) 2023-01-15 Task title +project @context
   # Note: We export priority for completed tasks (non-standard) to preserve full task data
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   output_file="${1:-todo.txt}"
   user=$(get_calling_user)

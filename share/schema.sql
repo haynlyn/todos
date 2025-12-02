@@ -56,19 +56,8 @@ CREATE TABLE IF NOT EXISTS project_topics (
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY,
   user TEXT UNIQUE NOT NULL,
-  role TEXT NOT NULL DEFAULT 'user',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  created_by TEXT,
-  CHECK (role IN ('admin', 'user'))
-);
-
-CREATE TABLE IF NOT EXISTS user_audit (
-  id INTEGER PRIMARY KEY,
-  action TEXT NOT NULL,
-  target_user TEXT NOT NULL,
-  actor TEXT NOT NULL,
-  timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  details TEXT
+  created_by TEXT
 );
 
 -- May just limit topics to ~63 different ones and use binary encoding for bridging tasks to topics with `power()`

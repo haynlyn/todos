@@ -2,11 +2,11 @@
 # Common utilities shared across all library files
 
 find_project_root() {
-  # Walk up directory tree looking for .todos.db or .todosrc
+  # Walk up directory tree looking for .todos.db file or .todos/ directory
   current_dir="$PWD"
 
   while [ "$current_dir" != "/" ]; do
-    if [ -f "$current_dir/.todos.db" ] || [ -f "$current_dir/.todosrc" ]; then
+    if [ -f "$current_dir/.todos.db" ] || [ -d "$current_dir/.todos" ]; then
       echo "$current_dir"
       return 0
     fi
@@ -24,39 +24,16 @@ get_db_path() {
     return 0
   fi
 
-  # 2. Check for .todosrc in current directory or parents
+  # 2. Find project root (walks up looking for .todos.db or .todos/ directory)
   project_root=$(find_project_root)
   if [ -n "$project_root" ]; then
-    if [ -f "$project_root/.todosrc" ]; then
-      . "$project_root/.todosrc"
-      echo "$DB"
-      return 0
-    fi
-    # Found .todos.db directly
-    if [ -f "$project_root/.todos.db" ]; then
-      echo "$project_root/.todos.db"
-      return 0
-    fi
-  fi
-
-  # 3. Check global config
-  if [ -f "$HOME/.config/todos/config" ]; then
-    . "$HOME/.config/todos/config"
-    if [ -n "$DB" ]; then
-      echo "$DB"
-      return 0
-    fi
-  fi
-
-  # 4. Check for .todos.db in current directory
-  if [ -f "$PWD/.todos.db" ]; then
-    echo "$PWD/.todos.db"
+    echo "$project_root/.todos.db"
     return 0
   fi
 
-  # 5. Not found - return error
+  # 3. Not found - return error
   echo "Error: No todos database found." >&2
-  echo "Run 'todos init' to create a new database in this directory." >&2
+  echo "Run 'todos init' from your project root to create a database." >&2
   return 1
 }
 

@@ -8,7 +8,7 @@
 
 build_from_files() {
   # Scan for .todo files, TODO statements, or TODOS blocks
-  DB_PATH=$(get_db_path)
+  DB_PATH=$(get_db_path) || return 1
 
   scan_dir="."
   from_type="auto"

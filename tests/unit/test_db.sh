@@ -67,11 +67,10 @@ assert_contains "$tables" "user_topics" "User_topics table should exist"
 assert_contains "$tables" "projects" "Projects table should exist"
 teardown_test
 
-# Test 7: Schema validation - check users tables exist in users DB
+# Test 7: Schema validation - check users table exists
 setup_test
 users_tables=$(sqlite3 "$TEST_DB" "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;")
-assert_contains "$users_tables" "users" "Users table should exist in users database"
-assert_contains "$users_tables" "user_audit" "User_audit table should exist in users database"
+assert_contains "$users_tables" "users" "Users table should exist in database"
 teardown_test
 
 # Test 8: Check tasks table has completed_at field
