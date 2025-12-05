@@ -303,6 +303,8 @@ your-project/
 
 ## Testing
 
+### For Users
+
 Run the full test suite:
 
 ```bash
@@ -316,6 +318,18 @@ Run specific test categories:
 ./run_tests.sh --unit          # Unit tests only
 ./run_tests.sh --integration   # Integration tests only
 ./run_tests.sh --test test_tasks.sh  # Specific test file
+```
+
+### For Developers
+
+Using the Makefile (recommended for development):
+
+```bash
+make test                # Run all tests
+make test-unit           # Unit tests only
+make test-integration    # Integration tests only
+make test-verbose        # Verbose output
+make test-watch          # Continuous testing (requires entr)
 ```
 
 **Test Philosophy:**
@@ -809,6 +823,44 @@ This removes:
 
 ## Development
 
+### Quick Start for Contributors
+
+```bash
+# Clone and setup
+git clone https://github.com/yourusername/todos.git
+cd todos
+
+# Install in development mode (uses symlinks)
+make dev-install
+
+# Run tests
+make test
+
+# Check code quality
+make lint
+
+# See all available commands
+make help
+```
+
+### Common Development Commands
+
+The project includes a comprehensive Makefile for development tasks:
+
+| Command | Description |
+|---------|-------------|
+| `make help` | Show all available commands |
+| `make dev-install` | Install with symlinks for development |
+| `make test` | Run all tests |
+| `make test-unit` | Run only unit tests |
+| `make lint` | Check code with shellcheck |
+| `make format` | Auto-format shell scripts |
+| `make check` | Run lint + tests (CI validation) |
+| `make clean` | Remove test artifacts |
+| `make install-hooks` | Install git pre-commit hooks |
+
+For complete development documentation, see **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
 ### Project Layout
 
 ```
@@ -833,6 +885,8 @@ todos/
 │   ├── fixtures/          # Test data
 │   └── run_tests.sh       # Test runner
 ├── install.sh             # Installation script
+├── Makefile               # Development automation
+├── CONTRIBUTING.md        # Contributor guide
 └── README.md              # This file
 ```
 
@@ -841,19 +895,23 @@ todos/
 1. Fork the repository
 2. Create a feature branch
 3. Write tests for new functionality
-4. Ensure all tests pass: `cd tests && ./run_tests.sh`
-5. Update documentation
-6. Submit a pull request
+4. Ensure all tests pass: `make test`
+5. Run linting: `make lint`
+6. Update documentation
+7. Submit a pull request
 
 **Code style:**
 - POSIX-compliant shell scripts
 - Use `shellcheck` for linting
+- Use `shfmt` for formatting
 - Follow existing patterns in codebase
 - Write tests that mirror production usage
 
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for detailed development guidelines.
+
 ## License
 
-[Specify your license here]
+[This section intentionally left blank.]
 
 ## Support
 
@@ -863,6 +921,5 @@ todos/
 
 ## Acknowledgments
 
-- Inspired by [todo.txt](http://todotxt.org/)
+- Supports import/export for [todo.txt](http://todotxt.org). todo.txt is a separate project with which I'm not affiliated.
 - Built with SQLite and POSIX shell
-- Designed for git-native workflows
