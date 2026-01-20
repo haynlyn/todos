@@ -13,12 +13,14 @@ FIXTURES_DIR="$(dirname "$0")/../fixtures"
 echo "${BLUE}Running Build/Scan Tests${NC}"
 echo "========================================"
 
-# Test 1: Scan .todo files
+# Test 1: Scan .todo files (including todo.txt)
 setup_test
 build_from_files --from todo-files -d "$FIXTURES_DIR" > /dev/null 2>&1
 # demo1.todo: 5, demo2.todo: 4, project_tasks.todo: 25, bugs.todo: 20, features.todo: 20
-# Total: 74 non-blank lines + 1 extra line = 75 tasks from .todo files
-assert_db_count "tasks" 75 "Should have 75 tasks from .todo files"
+# Total .todo files: 74 non-blank lines + 1 extra line = 75 tasks
+# todo.txt: 11 tasks (now also scanned by --from todo-files)
+# Grand total: 75 + 11 = 86
+assert_db_count "tasks" 86 "Should have 86 tasks from .todo files + todo.txt"
 teardown_test
 
 # Test 2: .todo files create file associations

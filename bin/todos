@@ -70,6 +70,11 @@ case "$1" in
     export_to_todotxt "$@"
     ;;
 
+  diff)
+    shift
+    "$LIBDIR/db-diff.sh" "${1:-.todos.db}"
+    ;;
+
   # User management commands (minimal, safe operations only)
   user)
     shift
@@ -130,8 +135,8 @@ See USER_MANAGEMENT.md for complete documentation.
 EOF
         ;;
       *)
-        echo "Usage: $0 user {list|remove|prune} [args]" >&2
-        echo "       $0 user --help    # Show all commands including advanced" >&2
+        echo "Usage: todos user {list|remove|prune} [args]" >&2
+        echo "       todos user --help    # Show all commands including advanced" >&2
         echo "Note: Users are auto-created on first use." >&2
         exit 1
         ;;
@@ -240,7 +245,7 @@ EOF
         list_config
         ;;
       *)
-        echo "Usage: $0 config {set|unset|get|list} [key] [value]" >&2
+        echo "Usage: todos config {set|unset|get|list} [key] [value]" >&2
         ;;
     esac
     ;;
@@ -285,14 +290,20 @@ EOF
   # Help command
   help|-h|--help)
     cat <<EOF
-Usage: $0 <command> [options]
+Usage: todos <command> [options]
 
 DATABASE COMMANDS:
   init [path]              Initialize database (run from project root)
                            Creates .todos.db in current directory or at [path]
   flush|reset              Delete and reinitialize database
   delete                   Permanently delete database
-  build [options]          Scan for TODO comments and .todo files
+  build [options]          Scan for tasks from multiple sources:
+                           - todo.txt file (if exists in scan directory)
+                           - .todo files (simple format)
+                           - TODO/FIXME/NOTE comments in code
+                           - TODOS blocks in code
+                           Note: Tracks file scan time and modification time
+                           to detect stale TODO references
     --from <type>          Scan type: auto, todo-files, comments, blocks (default: auto)
     -d, --directory <dir>  Directory to scan (default: .)
     --assign-to-me         Assign all discovered tasks to you
@@ -302,20 +313,28 @@ DATABASE COMMANDS:
       todos build --from comments
       todos build --from all --assign-to-me
       todos build --from todo-files -d ./src
-  import <file>            Import tasks from todo.txt file
-  export <file>            Export tasks to todo.txt file
+  import [file]            Import tasks from todo.txt file (default: ./todo.txt)
+  export [file]            Export tasks to todo.txt file (default: ./todo.txt)
     -a, --all              Export all tasks
-    -d, --done             Export only completed tasks
-    -i, --incomplete       Export only incomplete tasks
+    -d, --done             Export only completed tasks (default: incomplete only)
+    -i, --incomplete       Export only incomplete tasks (default)
+  diff [db-file]           Show readable diff of database changes since last commit
+                           (default: .todos.db)
 
 TASK COMMANDS:
   create|add <content> [options]  Create a new task
     <content>              Task description (required, positional)
+                           Supports todo.txt format: (A) Task +project @context due:2024-12-31
     -t, --title <title>    Optional short title/summary
     -p, --priority <num>   Priority (1=A, 2=B, etc.)
     -d, --due-date <date>  Due date (YYYY-MM-DD)
     -s, --status <status>  Status (TODO, IN_PROGRESS, DONE)
     -f, --file <path>      Associated file
+
+    Examples:
+      todos create "Fix authentication bug" -p 1 -d 2024-12-31
+      todos create "(A) Fix auth bug +backend @security due:2024-12-31"
+      todos create "Update docs +project @documentation"
   delete|del <id|title>    Delete a task
   list|ls [options]        List tasks
     -t, --topic <topic>    Filter by topic
@@ -386,37 +405,37 @@ USER MANAGEMENT PHILOSOPHY:
 EXAMPLES:
   # Initialize from your project root directory
   cd /path/to/your/project
-  $0 init
+  todos init
 
   # Create tasks (works from project root or any subdirectory)
-  $0 create "Call Mom"
-  $0 create "Fix authentication bug" -t "Auth Bug" -p 1 -d 2024-12-31
-  $0 list -i --sort-by priority
-  $0 tag 1 urgent
-  $0 done 1
+  todos create "Call Mom"
+  todos create "Fix authentication bug" -t "Auth Bug" -p 1 -d 2024-12-31
+  todos list -i --sort-by priority
+  todos tag 1 urgent
+  todos done 1
 
   # Task ownership management
-  $0 reassign 42 alice              # Reassign task 42 to alice
-  $0 reassign 42 --unassign         # Unassign task 42
-  $0 reassign-all --from bob --to alice  # Bulk reassign all bob's tasks
-  $0 user remove bob                # Remove bob (if 0 tasks)
+  todos reassign 42 alice              # Reassign task 42 to alice
+  todos reassign 42 --unassign         # Unassign task 42
+  todos reassign-all --from bob --to alice  # Bulk reassign all bob's tasks
+  todos user remove bob                # Remove bob (if 0 tasks)
 
   # Build and export
-  $0 build --from all
-  $0 export todo.txt -a
+  todos build --from all
+  todos export todo.txt -a
 
   # Statistics and user management
-  $0 stats
-  $0 stats --status --priority
-  $0 user list                      # Show users and task counts
-  $0 user prune                     # Clean up empty users
+  todos stats
+  todos stats --status --priority
+  todos user list                      # Show users and task counts
+  todos user prune                     # Clean up empty users
 
 EOF
     ;;
 
   *)
     echo "Unknown command: $1" >&2
-    echo "Try '$0 help' for usage information" >&2
+    echo "Try 'todos help' for usage information" >&2
     exit 1
     ;;
 esac

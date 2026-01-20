@@ -139,4 +139,81 @@ assert_contains "$result" "Incomplete task" "List should contain incomplete task
 assert_not_contains "$result" "Complete task" "List should not contain complete task"
 teardown_test
 
+# Test 17: Todo.txt format - priority parsing
+setup_test
+create_task "(A) High priority task" > /dev/null 2>&1
+assert_row_exists "tasks" "content = 'High priority task' AND priority = 1" "Priority (A) should be parsed as 1"
+teardown_test
+
+# Test 18: Todo.txt format - priority and due date
+setup_test
+create_task "(B) Task with deadline due:2024-12-31" > /dev/null 2>&1
+assert_row_exists "tasks" "priority = 2 AND due_date = '2024-12-31'" "Priority and due date should be parsed"
+assert_row_exists "tasks" "content = 'Task with deadline'" "Content should be extracted correctly"
+teardown_test
+
+# Test 19: Todo.txt format - topics (projects and contexts)
+setup_test
+create_task "Task with +project @context" > /dev/null 2>&1
+assert_row_exists "topics" "topic = 'project'" "Project topic should be created"
+assert_row_exists "topics" "topic = 'context'" "Context topic should be created"
+task_id=$(sqlite3 "$TEST_DB" "SELECT id FROM tasks WHERE content = 'Task with';")
+project_id=$(sqlite3 "$TEST_DB" "SELECT id FROM topics WHERE topic = 'project';")
+context_id=$(sqlite3 "$TEST_DB" "SELECT id FROM topics WHERE topic = 'context';")
+assert_row_exists "task_topics" "task_id = $task_id AND topic_id = $project_id" "Task should be linked to project topic"
+assert_row_exists "task_topics" "task_id = $task_id AND topic_id = $context_id" "Task should be linked to context topic"
+teardown_test
+
+# Test 20: Todo.txt format - full format
+setup_test
+create_task "(A) Fix authentication bug +backend @security due:2024-12-31" > /dev/null 2>&1
+assert_row_exists "tasks" "content = 'Fix authentication bug' AND priority = 1 AND due_date = '2024-12-31'" "All fields should be parsed"
+assert_row_exists "topics" "topic = 'backend'" "Backend topic should be created"
+assert_row_exists "topics" "topic = 'security'" "Security topic should be created"
+task_id=$(sqlite3 "$TEST_DB" "SELECT id FROM tasks ORDER BY id DESC LIMIT 1;")
+assert_db_count "task_topics" 2 "Should have 2 task-topic links"
+teardown_test
+
+# Test 21: Todo.txt format - alternative priority format
+setup_test
+create_task "Task with pri:C alternative priority" > /dev/null 2>&1
+assert_row_exists "tasks" "priority = 3" "Alternative pri:C format should be parsed as 3"
+assert_row_exists "tasks" "content = 'Task with alternative priority'" "Content should exclude pri:C"
+teardown_test
+
+# Test 22: Todo.txt format - multiple topics
+setup_test
+create_task "Multi-topic task +web +api @backend @security" > /dev/null 2>&1
+assert_db_count "topics" 4 "Should create 4 topics"
+task_id=$(sqlite3 "$TEST_DB" "SELECT id FROM tasks ORDER BY id DESC LIMIT 1;")
+assert_db_count "task_topics" 4 "Should have 4 task-topic links"
+teardown_test
+
+# Test 23: Todo.txt format - mixed with explicit flags (flags take precedence)
+setup_test
+create_task "(A) Task with priority due:2024-12-31" -p 5 -d "2025-01-01" > /dev/null 2>&1
+assert_row_exists "tasks" "priority = 5 AND due_date = '2025-01-01'" "Explicit flags should override parsed values"
+teardown_test
+
+# Test 24: Todo.txt format - special characters in topics
+setup_test
+create_task "Task with +my-project @my_context" > /dev/null 2>&1
+assert_row_exists "topics" "topic = 'my-project'" "Topic with hyphen should be created"
+assert_row_exists "topics" "topic = 'my_context'" "Topic with underscore should be created"
+teardown_test
+
+# Test 25: Todo.txt format - no parsing without markers
+setup_test
+create_task "Plain task without any markers" > /dev/null 2>&1
+assert_row_exists "tasks" "content = 'Plain task without any markers'" "Content should not be modified"
+assert_db_count "topics" 0 "No topics should be created"
+teardown_test
+
+# Test 26: Todo.txt format - whitespace normalization
+setup_test
+create_task "(B) Task   with   extra   spaces +topic" > /dev/null 2>&1
+assert_row_exists "tasks" "content = 'Task with extra spaces'" "Multiple spaces should be collapsed to single space"
+assert_row_exists "topics" "topic = 'topic'" "Topic should be created despite whitespace"
+teardown_test
+
 print_summary

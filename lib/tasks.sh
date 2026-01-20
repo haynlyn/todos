@@ -8,6 +8,7 @@
 
 create_task() {
   # Parse arguments: content (required, positional), title (optional), priority, due_date, status, file
+  # Also supports todo.txt format parsing: (A) 2024-01-15 Task content +project @context due:2024-02-01
   DB_PATH=$(get_db_path) || return 1
 
   content=""
@@ -16,6 +17,7 @@ create_task() {
   due_date=""
   status="TODO"
   file=""
+  topics=""
 
   # Ensure current user exists in database
   ensure_current_user
@@ -63,6 +65,34 @@ create_task() {
   if [ -z "$content" ]; then
     echo "Error: content is required"
     echo "Usage: todos create <content> [-t title] [-p priority] [-d due-date] [-s status] [-f file]"
+    echo "       todos create '(A) Task with priority +project @context due:2024-12-31'"
+    return 1
+  fi
+
+  # Try to parse as todo.txt format if no explicit flags were provided
+  # Only parse if content contains todo.txt markers AND no priority/due_date flags were used
+  if [ -z "$priority" ] && [ -z "$due_date" ]; then
+    # Check if content looks like todo.txt format (has priority, due:, +, or @)
+    if echo "$content" | grep -qE '(^\([A-Z]\) |due:[0-9]{4}-[0-9]{2}-[0-9]{2}|[\+@][a-zA-Z0-9_-]+|pri:[A-Z])'; then
+      # Parse the todo.txt line
+      parsed=$(parse_todotxt_line "$content")
+
+      # Extract parsed values: priority|due_date|content|topics|created_at
+      parsed_priority=$(echo "$parsed" | cut -d'|' -f1)
+      parsed_due_date=$(echo "$parsed" | cut -d'|' -f2)
+      parsed_content=$(echo "$parsed" | cut -d'|' -f3)
+      parsed_topics=$(echo "$parsed" | cut -d'|' -f4)
+
+      # Use parsed values (only if not already set by flags)
+      [ -n "$parsed_priority" ] && priority="$parsed_priority"
+      [ -n "$parsed_due_date" ] && due_date="$parsed_due_date"
+      [ -n "$parsed_content" ] && content="$parsed_content"
+      [ -n "$parsed_topics" ] && topics="$parsed_topics"
+    fi
+  fi
+
+  if [ -z "$content" ]; then
+    echo "Error: content cannot be empty after parsing"
     return 1
   fi
 
@@ -76,7 +106,35 @@ create_task() {
   # Get or create file_id if file specified
   file_id=""
   if [ -n "$file" ]; then
-    sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO files (path) VALUES ('$file');"
+    # Get file modification time if file exists (test which stat works first, then capture)
+    if [ -f "$file" ]; then
+      if stat -c "%Y" "$file" >/dev/null 2>&1; then
+        file_mtime=$(stat -c "%Y" "$file")
+      elif stat -f "%m" "$file" >/dev/null 2>&1; then
+        file_mtime=$(stat -f "%m" "$file")
+      else
+        file_mtime=""
+      fi
+
+      if [ -n "$file_mtime" ]; then
+        sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at, file_mtime)
+          VALUES ('$file', datetime('now'), datetime($file_mtime, 'unixepoch'))
+          ON CONFLICT(path) DO UPDATE SET
+            updated_at = datetime('now'),
+            file_mtime = datetime($file_mtime, 'unixepoch');"
+      else
+        sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at)
+          VALUES ('$file', datetime('now'))
+          ON CONFLICT(path) DO UPDATE SET
+            updated_at = datetime('now');"
+      fi
+    else
+      # File doesn't exist, so just insert without mtime
+      sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at)
+        VALUES ('$file', datetime('now'))
+        ON CONFLICT(path) DO UPDATE SET
+          updated_at = datetime('now');"
+    fi
     file_id=$(sqlite3 "$DB_PATH" "SELECT id FROM files WHERE path = '$file';")
   fi
 
@@ -87,18 +145,40 @@ create_task() {
     due_date_value="NULL"
   fi
 
+  # Build SQL for task insertion and topic tagging in a single transaction
+  sql_script="BEGIN TRANSACTION;\n"
+
   # Build INSERT with optional title
   if [ -n "$title" ]; then
-    sqlite3 "$DB_PATH" <<EOF
-INSERT INTO tasks (user_id, file_id, content, title, priority, status, due_date, created_at)
-VALUES ($user_id, ${file_id:-NULL}, '$content', '$title', ${priority:-NULL}, '$status', $due_date_value, datetime('now'));
-EOF
+    sql_script="${sql_script}INSERT INTO tasks (user_id, file_id, content, title, priority, status, due_date, created_at)
+VALUES ($user_id, ${file_id:-NULL}, '$content', '$title', ${priority:-NULL}, '$status', $due_date_value, datetime('now'));\n"
   else
-    sqlite3 "$DB_PATH" <<EOF
-INSERT INTO tasks (user_id, file_id, content, priority, status, due_date, created_at)
-VALUES ($user_id, ${file_id:-NULL}, '$content', ${priority:-NULL}, '$status', $due_date_value, datetime('now'));
-EOF
+    sql_script="${sql_script}INSERT INTO tasks (user_id, file_id, content, priority, status, due_date, created_at)
+VALUES ($user_id, ${file_id:-NULL}, '$content', ${priority:-NULL}, '$status', $due_date_value, datetime('now'));\n"
   fi
+
+  # If topics were parsed from todo.txt format, add them to the transaction
+  if [ -n "$topics" ]; then
+    for topic in $topics; do
+      # Remove + or @ prefix
+      topic_name=$(echo "$topic" | sed 's/^[+@]//')
+      # Escape single quotes in topic name
+      topic_name=$(echo "$topic_name" | sed "s/'/''/g")
+
+      # Insert or ignore topic, then link it
+      sql_script="${sql_script}INSERT OR IGNORE INTO topics (topic) VALUES ('$topic_name');\n"
+      sql_script="${sql_script}INSERT OR IGNORE INTO task_topics (task_id, topic_id)
+SELECT (SELECT id FROM tasks ORDER BY id DESC LIMIT 1), id FROM topics WHERE topic = '$topic_name';\n"
+    done
+  fi
+
+  sql_script="${sql_script}COMMIT;"
+
+  # Execute the entire transaction
+  printf "$sql_script" | sqlite3 "$DB_PATH"
+
+  # Get the task ID of the newly created task
+  task_id=$(sqlite3 "$DB_PATH" "SELECT id FROM tasks ORDER BY id DESC LIMIT 1;")
 
   # Display what was created (title if present, otherwise first part of content)
   if [ -n "$title" ]; then
@@ -110,6 +190,11 @@ EOF
       display_content="$display_content..."
     fi
     echo "Created task: $display_content"
+  fi
+
+  # Show topics if any were added
+  if [ -n "$topics" ]; then
+    echo "Tagged with: $topics"
   fi
 }
 

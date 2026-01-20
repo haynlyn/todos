@@ -15,9 +15,9 @@ import_from_todotxt() {
 
   input_file="$1"
 
+  # Default to ./todo.txt if no file specified
   if [ -z "$input_file" ]; then
-    echo "Error: must specify input file"
-    return 1
+    input_file="./todo.txt"
   fi
 
   if [ ! -f "$input_file" ]; then
@@ -29,8 +29,28 @@ import_from_todotxt() {
   ensure_current_user
   user_id=$(get_current_user_id)
 
-  # Add file to files table
-  sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO files (path) VALUES ('$input_file');"
+  # Get file modification time (test which stat works first, then capture)
+  if stat -c "%Y" "$input_file" >/dev/null 2>&1; then
+    file_mtime=$(stat -c "%Y" "$input_file")
+  elif stat -f "%m" "$input_file" >/dev/null 2>&1; then
+    file_mtime=$(stat -f "%m" "$input_file")
+  else
+    file_mtime=""
+  fi
+
+  # Add or update file in files table
+  if [ -n "$file_mtime" ]; then
+    sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at, file_mtime)
+      VALUES ('$input_file', datetime('now'), datetime($file_mtime, 'unixepoch'))
+      ON CONFLICT(path) DO UPDATE SET
+        updated_at = datetime('now'),
+        file_mtime = datetime($file_mtime, 'unixepoch');"
+  else
+    sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at)
+      VALUES ('$input_file', datetime('now'))
+      ON CONFLICT(path) DO UPDATE SET
+        updated_at = datetime('now');"
+  fi
   file_id=$(sqlite3 "$DB_PATH" "SELECT id FROM files WHERE path = '$input_file';")
 
   echo "Importing tasks from $input_file..."
@@ -132,8 +152,8 @@ import_from_todotxt() {
     # content variable from note: field is discarded - todo.txt is single-line focused
 
     # Build SQL INSERT statement with all possible fields
-    sql_fields="user_id, file_id, line_start, content, status"
-    sql_values="$user_id, $file_id, $line_num, '$task_content', '$status'"
+    sql_fields="user_id, file_id, line_start, content, status, source"
+    sql_values="$user_id, $file_id, $line_num, '$task_content', '$status', 'import'"
 
     if [ -n "$priority" ]; then
       sql_fields="$sql_fields, priority"
@@ -259,14 +279,14 @@ export_to_todotxt() {
   # Note: We export priority for completed tasks (non-standard) to preserve full task data
   DB_PATH=$(get_db_path) || return 1
 
-  output_file="${1:-todo.txt}"
+  output_file=""
   user=$(get_calling_user)
 
   # Options for filtering
   show_done=false
   show_incomplete=true
 
-  shift
+  # Parse arguments: flags can come before or after filename
   while [ "$#" -gt 0 ]; do
     case $1 in
       -a|--all)
@@ -288,11 +308,25 @@ export_to_todotxt() {
         user="$2"
         shift 2
         ;;
+      -*)
+        # Unknown flag - warn and skip
+        echo "Warning: unknown flag: $1" >&2
+        shift
+        ;;
       *)
+        # First non-flag argument is the output file
+        if [ -z "$output_file" ]; then
+          output_file="$1"
+        fi
         shift
         ;;
     esac
   done
+
+  # Default to todo.txt if no file specified
+  if [ -z "$output_file" ]; then
+    output_file="todo.txt"
+  fi
 
   echo "Exporting tasks to $output_file..."
 

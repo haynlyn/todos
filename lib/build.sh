@@ -52,14 +52,20 @@ build_from_files() {
   fi
 
   echo "Scanning directory: $scan_dir"
+  echo ""
+
+  # Source import_export.sh for todo.txt support
+  . "$LIBDIR/import_export.sh"
 
   case $from_type in
     auto|all)
+      import_todotxt_if_exists "$scan_dir"
       scan_todo_files "$scan_dir" "$user_id" "$DB_PATH"
       scan_todo_comments "$scan_dir" "$user_id" "$DB_PATH"
       scan_todos_blocks "$scan_dir" "$user_id" "$DB_PATH"
       ;;
     todo-files)
+      import_todotxt_if_exists "$scan_dir"
       scan_todo_files "$scan_dir" "$user_id" "$DB_PATH"
       ;;
     comments)
@@ -75,7 +81,18 @@ build_from_files() {
       ;;
   esac
 
+  echo ""
   echo "Build completed"
+}
+
+import_todotxt_if_exists() {
+  scan_dir="$1"
+  todotxt_file="$scan_dir/todo.txt"
+
+  if [ -f "$todotxt_file" ]; then
+    echo "Found todo.txt, importing..."
+    import_from_todotxt "$todotxt_file"
+  fi
 }
 
 scan_todo_files() {
@@ -92,10 +109,45 @@ scan_todo_files() {
 
   # Find all .todo files
   find "$scan_dir" -name "*.todo" -type f | while read -r todo_file; do
-    echo "Processing: $todo_file"
+    # Get file modification time (test which stat works first, then capture)
+    if stat -c "%Y" "$todo_file" >/dev/null 2>&1; then
+      file_mtime=$(stat -c "%Y" "$todo_file")
+    elif stat -f "%m" "$todo_file" >/dev/null 2>&1; then
+      file_mtime=$(stat -f "%m" "$todo_file")
+    else
+      file_mtime=""
+    fi
 
-    # Add file to files table
-    sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO files (path) VALUES ('$todo_file');"
+    # Check if file exists in DB and get stored mtime
+    stored_mtime=""
+    if [ -n "$file_mtime" ]; then
+      stored_mtime=$(sqlite3 "$DB_PATH" "SELECT strftime('%s', file_mtime) FROM files WHERE path = '$todo_file';" 2>/dev/null || echo "")
+    fi
+
+    # Skip parsing if file unchanged (mtime matches)
+    if [ -n "$file_mtime" ] && [ -n "$stored_mtime" ] && [ "$file_mtime" = "$stored_mtime" ]; then
+      # Still update the scanned_at timestamp
+      sqlite3 "$DB_PATH" "UPDATE files SET updated_at = datetime('now') WHERE path = '$todo_file';"
+      echo "  Skipped (unchanged): $todo_file"
+      continue
+    fi
+
+    # File is new or modified - parse it
+    echo "  Processing: $todo_file"
+
+    # Add or update file in files table
+    if [ -n "$file_mtime" ]; then
+      sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at, file_mtime)
+        VALUES ('$todo_file', datetime('now'), datetime($file_mtime, 'unixepoch'))
+        ON CONFLICT(path) DO UPDATE SET
+          updated_at = datetime('now'),
+          file_mtime = datetime($file_mtime, 'unixepoch');"
+    else
+      sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at)
+        VALUES ('$todo_file', datetime('now'))
+        ON CONFLICT(path) DO UPDATE SET
+          updated_at = datetime('now');"
+    fi
     file_id=$(sqlite3 "$DB_PATH" "SELECT id FROM files WHERE path = '$todo_file';")
 
     # Collect INSERT statements for this file
@@ -128,12 +180,12 @@ scan_todo_files() {
       # Collect INSERT statement (title is optional)
       if [ -n "$title" ]; then
         batch_sql="$batch_sql
-INSERT INTO tasks (user_id, file_id, line_start, content, title, status, created_at)
-VALUES ($user_id, $file_id, $line_num, '$content', '$title', 'TODO', datetime('now'));"
+INSERT INTO tasks (user_id, file_id, line_start, content, title, status, source, created_at)
+VALUES ($user_id, $file_id, $line_num, '$content', '$title', 'TODO', 'build', datetime('now'));"
       else
         batch_sql="$batch_sql
-INSERT INTO tasks (user_id, file_id, line_start, content, status, created_at)
-VALUES ($user_id, $file_id, $line_num, '$content', 'TODO', datetime('now'));"
+INSERT INTO tasks (user_id, file_id, line_start, content, status, source, created_at)
+VALUES ($user_id, $file_id, $line_num, '$content', 'TODO', 'build', datetime('now'));"
       fi
     done < "$todo_file"
 
@@ -175,8 +227,41 @@ scan_todo_comments() {
     # Check if file is text
     if file "$source_file" | grep -q text; then
 
-      # Add file to files table
-      sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO files (path) VALUES ('$source_file');"
+      # Get file modification time (test which stat works first, then capture)
+      if stat -c "%Y" "$source_file" >/dev/null 2>&1; then
+        file_mtime=$(stat -c "%Y" "$source_file")
+      elif stat -f "%m" "$source_file" >/dev/null 2>&1; then
+        file_mtime=$(stat -f "%m" "$source_file")
+      else
+        file_mtime=""
+      fi
+
+      # Check if file exists in DB and get stored mtime
+      stored_mtime=""
+      if [ -n "$file_mtime" ]; then
+        stored_mtime=$(sqlite3 "$DB_PATH" "SELECT strftime('%s', file_mtime) FROM files WHERE path = '$source_file';" 2>/dev/null || echo "")
+      fi
+
+      # Skip parsing if file unchanged (mtime matches)
+      if [ -n "$file_mtime" ] && [ -n "$stored_mtime" ] && [ "$file_mtime" = "$stored_mtime" ]; then
+        # Still update the scanned_at timestamp
+        sqlite3 "$DB_PATH" "UPDATE files SET updated_at = datetime('now') WHERE path = '$source_file';"
+        continue
+      fi
+
+      # Add or update file in files table
+      if [ -n "$file_mtime" ]; then
+        sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at, file_mtime)
+          VALUES ('$source_file', datetime('now'), datetime($file_mtime, 'unixepoch'))
+          ON CONFLICT(path) DO UPDATE SET
+            updated_at = datetime('now'),
+            file_mtime = datetime($file_mtime, 'unixepoch');"
+      else
+        sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at)
+          VALUES ('$source_file', datetime('now'))
+          ON CONFLICT(path) DO UPDATE SET
+            updated_at = datetime('now');"
+      fi
       file_id=$(sqlite3 "$DB_PATH" "SELECT id FROM files WHERE path = '$source_file';")
 
       # Collect INSERT statements for this file using a temp file to avoid subshell issues
@@ -192,8 +277,8 @@ scan_todo_comments() {
         # Escape single quotes for SQL
         content=$(echo "$content" | sed "s/'/''/g")
 
-        # Append INSERT statement to temp file (no title, just content)
-        echo "INSERT INTO tasks (user_id, file_id, line_start, content, status, created_at) VALUES ($user_id, $file_id, $line_num, '$content', 'TODO', datetime('now'));" >> "$temp_sql"
+        # Append INSERT statement to temp file (no title, just content) with source='build'
+        echo "INSERT INTO tasks (user_id, file_id, line_start, content, status, source, created_at) VALUES ($user_id, $file_id, $line_num, '$content', 'TODO', 'build', datetime('now'));" >> "$temp_sql"
       done
 
       # Execute batch insert for this file if there were any comments
@@ -238,8 +323,41 @@ scan_todos_blocks() {
     # Check if file is text
     if file "$source_file" | grep -q text; then
 
-      # Add file to files table
-      sqlite3 "$DB_PATH" "INSERT OR IGNORE INTO files (path) VALUES ('$source_file');"
+      # Get file modification time (test which stat works first, then capture)
+      if stat -c "%Y" "$source_file" >/dev/null 2>&1; then
+        file_mtime=$(stat -c "%Y" "$source_file")
+      elif stat -f "%m" "$source_file" >/dev/null 2>&1; then
+        file_mtime=$(stat -f "%m" "$source_file")
+      else
+        file_mtime=""
+      fi
+
+      # Check if file exists in DB and get stored mtime
+      stored_mtime=""
+      if [ -n "$file_mtime" ]; then
+        stored_mtime=$(sqlite3 "$DB_PATH" "SELECT strftime('%s', file_mtime) FROM files WHERE path = '$source_file';" 2>/dev/null || echo "")
+      fi
+
+      # Skip parsing if file unchanged (mtime matches)
+      if [ -n "$file_mtime" ] && [ -n "$stored_mtime" ] && [ "$file_mtime" = "$stored_mtime" ]; then
+        # Still update the scanned_at timestamp
+        sqlite3 "$DB_PATH" "UPDATE files SET updated_at = datetime('now') WHERE path = '$source_file';"
+        continue
+      fi
+
+      # Add or update file in files table
+      if [ -n "$file_mtime" ]; then
+        sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at, file_mtime)
+          VALUES ('$source_file', datetime('now'), datetime($file_mtime, 'unixepoch'))
+          ON CONFLICT(path) DO UPDATE SET
+            updated_at = datetime('now'),
+            file_mtime = datetime($file_mtime, 'unixepoch');"
+      else
+        sqlite3 "$DB_PATH" "INSERT INTO files (path, updated_at)
+          VALUES ('$source_file', datetime('now'))
+          ON CONFLICT(path) DO UPDATE SET
+            updated_at = datetime('now');"
+      fi
       file_id=$(sqlite3 "$DB_PATH" "SELECT id FROM files WHERE path = '$source_file';")
 
       # Use temp file to collect INSERT statements for batching
@@ -388,6 +506,6 @@ process_block() {
 
   # Only append SQL if we have content
   if [ -n "$content" ]; then
-    echo "INSERT INTO tasks (user_id, file_id, line_start, line_end, content, status, created_at) VALUES ($user_id, $file_id, $block_start_line, $block_end_line, '$content', 'TODO', datetime('now'));" >> "$temp_file"
+    echo "INSERT INTO tasks (user_id, file_id, line_start, line_end, content, status, source, created_at) VALUES ($user_id, $file_id, $block_start_line, $block_end_line, '$content', 'TODO', 'build', datetime('now'));" >> "$temp_file"
   fi
 }

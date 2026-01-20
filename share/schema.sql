@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   content TEXT NOT NULL,  -- Required: The actual task description (todo.txt compatible)
   title TEXT,              -- Optional: Short summary/title (Jira-style)
   status TEXT,
+  source TEXT DEFAULT 'manual',  -- Task origin: 'build', 'manual', 'import'
   created_at TEXT,
   due_date TEXT,
   completed_at TEXT,
@@ -18,7 +19,8 @@ CREATE TABLE IF NOT EXISTS files (
   id INTEGER PRIMARY KEY,
   path TEXT UNIQUE,
   tags TEXT,
-  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  file_mtime TEXT,         -- File modification time when last scanned (for staleness detection)
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP  -- When this file was last scanned during build
 );
 
 -- May just limit topics to ~63 different ones and use binary encoding for bridging stuff to topics with `power()`

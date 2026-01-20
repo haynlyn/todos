@@ -111,8 +111,13 @@ todos stats
 ### Task Operations
 
 ```bash
-# Create a task
+# Create a task (traditional format)
 todos create "Task description" -t "Short title" -p 1 -d 2024-12-31
+
+# Create a task (todo.txt format - auto-parses priority, due date, topics)
+todos create "(A) Fix authentication bug +backend @security due:2024-12-31"
+todos create "Update documentation +project @docs"
+todos create "(B) Review PR due:2024-12-15"
 
 # List tasks
 todos list                    # All tasks
@@ -133,6 +138,15 @@ todos delete 42
 todos tag 42 urgent
 todos tag 42 backend
 ```
+
+**Todo.txt format in `create` command:**
+- `(A)`, `(B)`, etc. - Priority (converted to 1, 2, etc.)
+- `+project` - Project tags (added as topics)
+- `@context` - Context tags (added as topics)
+- `due:YYYY-MM-DD` - Due date
+- `pri:A` - Alternative priority format
+
+The parser extracts these automatically, so you can paste todo.txt lines directly!
 
 ### Task Ownership
 
@@ -188,28 +202,66 @@ todos topics --all        # All topics with stats
 
 ```bash
 # Import from todo.txt format
-todos import tasks.txt
+todos import                # Defaults to ./todo.txt
+todos import tasks.txt      # Import specific file
 
-# Export all tasks
-todos export output.txt -a
-
-# Export only completed
-todos export done.txt -d
-
-# Export only incomplete
-todos export active.txt -i
+# Export tasks to todo.txt format
+todos export                # Defaults to ./todo.txt (incomplete only)
+todos export -a             # Export all tasks to ./todo.txt
+todos export output.txt -a  # Export all tasks to output.txt
+todos export done.txt -d    # Export only completed tasks
+todos export active.txt -i  # Export only incomplete tasks
 ```
 
 ### Build from Files
 
 ```bash
-# Auto-scan for TODOs in code
-todos build                           # Scans all files
+# Auto-scan for tasks from multiple sources:
+# - todo.txt (if exists)
+# - .todo files
+# - TODO/FIXME/NOTE comments
+# - TODOS blocks
+todos build                           # Scans all sources
 todos build --from comments           # Only code comments
-todos build --from todo-files         # Only .todo files
+todos build --from todo-files         # Only todo.txt + .todo files
 todos build -d ./src                  # Specific directory
 todos build --assign-to-me            # Assign discovered tasks to you
 ```
+
+**What `todos build` scans:**
+- **`todo.txt` file** - Full todo.txt format with priorities, due dates, topics
+- **`.todo` files** - Simple format: `Task description | Optional title`
+- **Code comments** - `TODO:`, `FIXME:`, `NOTE:` markers
+- **TODOS blocks** - Multi-line task blocks in comments
+
+**Incremental Builds (Experimental):** `todos build` is smart about what it scans:
+- Tracks ALL files in the scan directory with their modification times
+- On subsequent builds, only parses files that are new or modified
+- Skips unchanged files for much faster builds
+- Shows "Skipped (unchanged)" messages for files that don't need re-parsing
+- **Note**: This feature is experimental. If you encounter issues, delete `.todos.db` and run a fresh build.
+
+**File Tracking:** Each time you run `todos build`, the database records:
+- When each file was last scanned (`files.updated_at`)
+- The file's modification time at scan time (`files.file_mtime`)
+- Task source: `'build'`, `'manual'`, or `'import'` (`tasks.source`)
+
+This allows you to detect when source files have changed since the last build, helping identify potentially stale TODO references.
+
+### Database Changes
+
+```bash
+# View what changed since last commit
+todos diff
+
+# Shows readable output like:
+# Tasks Added:
+#   [3] Add new feature (status: TODO | priority: B)
+# Tasks Modified:
+#   [1] Fix bug (status: TODO → DONE)
+```
+
+Useful before committing `.todos.db` to see exactly what changed.
 
 ## File Formats
 
@@ -795,15 +847,23 @@ Display-related configuration (colors, date formats, output formats) is planned 
 
 The SQLite database contains:
 
-- `tasks` - Task content, status, priority, dates, file association
+- `tasks` - Task content, status, priority, dates, file association (via `file_id`, `line_start`, `line_end`)
+  - `source` - (Experimental) Task origin: `'build'` (from code scan), `'manual'` (user created), `'import'` (from todo.txt)
 - `users` - User records (auto-created)
 - `topics` - Task topics/tags
-- `files` - File paths for task association
+- `files` - File paths for task association with scan tracking
+  - `path` - File path
+  - `file_mtime` - (Experimental) File modification time when last scanned (for incremental builds)
+  - `updated_at` - When this file was last scanned during `todos build`
 - `projects` - Project groupings
 - `task_topics` - Many-to-many task-topic relationships
 - `user_topics` - User topic subscriptions
 - `project_tasks` - Project-task associations
 - `project_users` - Project-user associations
+
+**Incremental Builds (Experimental)**: The `files` table tracks when each file was last scanned and what its modification time was at that point. This enables incremental builds where only changed files are re-parsed, and helps detect stale TODO references.
+
+**Task Source Tracking (Experimental)**: The `tasks.source` column tracks how each task was created. This sets the foundation for future conflict detection when tasks are modified both in the database and in source files.
 
 Schema location: `share/schema.sql`
 
@@ -872,6 +932,7 @@ todos/
 │   ├── common.sh          # Shared utilities
 │   ├── config.sh          # Configuration management
 │   ├── db.sh              # Database operations
+│   ├── db-diff.sh         # Database diff utility
 │   ├── import_export.sh   # Import/export logic
 │   ├── stats.sh           # Statistics
 │   ├── tasks.sh           # Task CRUD operations

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./run_tests.sh:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

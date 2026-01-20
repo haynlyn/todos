@@ -1,0 +1,96 @@
+# BACKLOG - Future Enhancements and Improvements
+# Use: todos import BACKLOG.todo
+
+(A) Implement display.colors setting +display +ui
+(B) Implement display.date_format setting +display +ui
+(B) Implement display.timezone setting +display +ui
+(B) Implement output.format setting - Support table, json, csv +display +ui
+(C) Implement output.compact setting +display +ui
+(C) Implement list.limit setting +display +ui
+Implement config get/set for display settings in lib/config.sh +display +implementation
+Add display formatting logic to list_tasks in lib/tasks.sh +display +implementation
+Add JSON output formatter +display +implementation
+Add CSV output formatter +display +implementation
+Add color theme support (custom color schemes) +display +ui
+Add tests for display configuration +display +testing
+Document display configuration in README.md +display +documentation
+Support custom column ordering in table output +display +ui
+Support custom date format strings (strftime-compatible) +display +ui
+Support hiding/showing specific columns +display +ui
+Support color themes (dark, light, minimal) +display +ui
+Terminal width detection and auto-wrapping +display +ui
+Pagination support for long lists +display +ui
+Progress bars for statistics +display +ui
+
+(B) Create comprehensive TODO comment fixtures +testing +fixtures
+Add sample files with various comment styles (Python, JavaScript, Shell) +testing +fixtures
+Add multiple TODO markers per file for testing +testing +fixtures
+Add different comment syntaxes in fixtures +testing +fixtures
+Add edge cases for TODO comments (start/end of lines, nested) +testing +fixtures
+(B) Create comprehensive TODOS block fixtures +testing +fixtures
+Add multi-line TODOS blocks for testing +testing +fixtures
+Add nested task lists within blocks +testing +fixtures
+Add different indentation levels in fixtures +testing +fixtures
+Add various comment styles containing blocks +testing +fixtures
+(C) Update build test assertions - Make test counts match exact fixture counts +testing
+Document expected task counts in fixture files themselves +testing +documentation
+Update tests/unit/test_build.sh to use exact counts +testing
+Add comments in fixture files documenting task counts +testing +documentation
+
+(B) Create standardized argument parsing utility +code-quality +refactoring
+Audit all existing commands for consistent argument handling +code-quality +refactoring
+Document argument parsing best practices for new commands +code-quality +documentation
+Add tests for mixed flag/positional argument orders +code-quality +testing
+
+(C) Add export filter by status +export +enhancement
+(C) Add export filter by priority +export +enhancement
+(C) Add export filter by topic +export +enhancement
+(C) Add export filter by date range +export +enhancement
+
+(B) Add import duplicate detection +import +enhancement
+(C) Add import dry-run mode +import +enhancement
+(C) Add import merge strategy options +import +enhancement
+
+x Add build incremental mode - IMPLEMENTED (experimental): tracks all files with mtime, skips parsing unchanged files +build +enhancement +performance
+(A) Test successive builds thoroughly - Verify incremental builds work correctly across multiple runs +build +testing +experimental
+Test that unchanged files are actually skipped on second build +build +testing
+Test that modified files are re-parsed on second build +build +testing
+Test that new files are detected and parsed +build +testing
+Test that deleted files don't break the build +build +testing
+Test with large codebases (1000+ files) to verify performance gains +build +testing +performance
+Verify file_mtime comparison logic works on both GNU and BSD stat +build +testing
+(A) Add task conflict detection and resolution - Handle merge conflicts when source and DB diverge +build +enhancement +data-integrity
+Add source column to tasks table - values: 'build', 'manual', 'import' +build +schema
+Add manually_modified column to tasks table - track if user edited a build-sourced task +build +schema
+Add has_conflict column to tasks table - flag tasks with detected conflicts +build +schema
+Detect conflicts when task modified in DB and source changed or removed +build +logic
+Add 'todos conflicts' command to list all conflicted tasks +build +command
+Conflict resolution should show DB version vs source version with diff +build +ux
+Resolution options: keep DB, use source, delete, skip, merge +build +ux
+Auto-mark manually_modified=1 when user runs update/done/priority commands +build +logic
+Only update build-sourced tasks with manually_modified=0 on rebuild +build +logic
+Skip conflict prompts during build - just flag them for later review +build +ux
+Reconciliation should prompt current user if they own the task (or are admin) whether to delete or keep +build +ux
+Reconciliation should silently skip if task owned by another user (assume deliberate deletion) +build +ux
+Requires admin detection mechanism - need to define who is admin +build +permissions
+Consider user_audit table to track who modified/deleted tasks for better accountability +build +data-integrity +future
+Document conflict resolution behavior and permission model in README +build +documentation
+(C) Add build exclude patterns +build +enhancement
+(C) Add build statistics - IMPLEMENTED: shows scanned vs skipped files +build +enhancement
+
+(C) Support @context vs +project distinction +todo.txt +enhancement
+(C) Support recurrence patterns +todo.txt +enhancement
+
+(B) Add task validation on create/update +validation +data-integrity
+(C) Add database integrity check command +validation +data-integrity
+
+(C) Optimize topic linking in import +performance +optimization
+(C) Add database indexing strategy +performance +optimization
+
+(C) Add interactive task creation +ux +enhancement
+(C) Add task templates +ux +enhancement
+(C) Add quick capture mode +ux +enhancement
+
+(C) Add troubleshooting guide +documentation
+(C) Add architecture documentation +documentation
+(C) Add migration guide +documentation
